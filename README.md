@@ -72,15 +72,39 @@ nubzuki dl <url> [...] --to CS.10001/files         # download attachments
 nubzuki text lecture.pptx                          # slide text + speaker notes
 nubzuki text lecture.pdf
 nubzuki courses                                    # course IDs and board IDs
-nubzuki login                                      # paste your cookie manually
+nubzuki login                                      # log in by tapping a number in the KAIST app
+nubzuki login --cookie                             # paste a MoodleSession cookie instead
 ```
 
 Inside a semester folder, nubzuki uses that semester. Anywhere else, it uses the semester you last ran `init` for.
 The first `sweep` saves a baseline and prints a summary plus posts from the last 7 days (`--all` prints everything). After that, only changes appear.
 
-## Logging in (cookies)
+## Logging in
 
-nubzuki looks in this order and uses the first cookie it finds. It never prints the cookie.
+### Phone login (recommended, any OS)
+
+```sh
+nubzuki login --id <your KAIST ID>
+```
+
+```
+  → Open the KAIST app on your phone and tap  47
+Waiting for approval (up to 3 minutes)...
+Logged in.
+```
+
+This uses KAIST SSO's easy login: nubzuki sends only your ID, KAIST pushes a request to the KAIST app,
+and you tap the number shown in the terminal. No password is sent or stored.
+Your ID is remembered locally, so later, when the session expires, `nubzuki sweep` sends a new request
+by itself (only in an interactive terminal, and at most once a minute).
+
+Requirements: the KAIST login app registered for your account (sso.kaist.ac.kr → 로그인 앱 등록).
+KAIST may send a "new device" notice on each login, because nubzuki does not register itself as a trusted device.
+
+### Browser cookies
+
+Before asking your phone, nubzuki tries existing sessions in this order and uses the first one that works.
+It never prints the cookie.
 
 1. The `NUBZUKI_COOKIE` environment variable (e.g. `MoodleSession=...`)
 2. `~/.config/nubzuki/cookie`, written by `nubzuki login` with mode 600
@@ -88,17 +112,8 @@ nubzuki looks in this order and uses the first cookie it finds. It never prints 
 4. macOS + Chrome: decrypted with the "Chrome Safe Storage" Keychain entry (macOS asks for permission the first time)
 5. Firefox on any OS: read directly from the profile's `cookies.sqlite`
 
-For `nubzuki login`, copy the `MoodleSession` value from DevTools → Application → Cookies → `klms.kaist.ac.kr`.
-
-| OS | Works out of the box | Otherwise |
-|---|---|---|
-| macOS | Chrome, Firefox | `nubzuki login` |
-| Linux | Firefox | `pip install "nubzuki[browser]"` for Chrome, or `nubzuki login` |
-| Windows | Firefox | `nubzuki login` |
-
 On Windows, Chrome and Edge (127+) use app-bound encryption, so no other program can read their cookies.
-Either log in to KLMS once in Firefox, or run `nubzuki login` and paste `MoodleSession` from Chrome's DevTools.
-A pasted session lasts until KLMS logs you out; when `sweep` says you are not logged in, paste a fresh one.
+Use phone login, Firefox, or `nubzuki login --cookie` with `MoodleSession` copied from DevTools.
 
 ## No false "nothing new"
 

@@ -25,11 +25,11 @@ The `nubzuki` CLI must be installed. If it is missing, suggest `pipx install git
 
 ## Errors
 
-- "Not logged in" / expired session: ask the user to log in to klms.kaist.ac.kr in their browser again.
+- "Not logged in" / expired session: ask the user to run `! nubzuki login` themselves and tap the number shown in the KAIST app. Do not run it for them repeatedly; each run sends a push to their phone.
   The state file was not overwritten, so simply rerun after they log in.
 - "session lock": the session is still valid. Don't ask the user to log in; rerun in about 30 seconds.
 - If "nothing new" looks suspicious, suspect the session before the content. Check that `nubzuki courses` works.
-- If no cookie is found, have the user save their MoodleSession value with `nubzuki login`. Never print cookie values in the conversation.
+- If no session is found, the same `nubzuki login` applies (`nubzuki login --cookie` to paste a cookie instead). Never print cookie values in the conversation.
 
 ## Reference
 

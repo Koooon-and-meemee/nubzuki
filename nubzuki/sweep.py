@@ -73,7 +73,7 @@ def unique(path):
     return path
 
 
-def run(client, ws, since=None, download=False, show_all=False, out=print):
+def run(client, ws, since=None, download=False, show_all=False, save=True, out=print):
     client.check()
     old = ws.load_state()
     first = not old and not show_all
@@ -163,6 +163,7 @@ def run(client, ws, since=None, download=False, show_all=False, out=print):
             f"across {len(ws.courses)} courses.")
         out(f"Only posts from the last {RECENT_DAYS} days are shown above. "
             "From now on, `nubzuki sweep` shows only what changed. Use `--all` to see everything.")
-    ws.save_state(new)
-    out(f"\n(state saved: {ws.state_file})")
+    if save:
+        ws.save_state(new)
+        out(f"\n(state saved: {ws.state_file})")
     return report

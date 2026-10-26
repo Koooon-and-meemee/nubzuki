@@ -2,15 +2,13 @@ import argparse
 import getpass
 import json
 import os
-import shutil
-import subprocess
 import sys
 
-from . import __version__, auth, board, workspace
-from .client import Client, KlmsError, filename_of
+from . import __version__, auth, board, sso, workspace
+from .client import Client, KlmsError, SessionExpired, filename_of
 from .discover import SEMESTER_NAME, discover
 from .sweep import run
-from .text import pptx_text
+from .text import TextError, file_text
 
 
 def need_ws():
@@ -20,16 +18,58 @@ def need_ws():
     return ws
 
 
+def show_number(n):
+    if n:
+        print(f"\n  → Open the KAIST app on your phone and tap  {n}\n")
+    else:
+        print("\n  → Approve the request in the KAIST app on your phone.\n")
+    print("Waiting for approval (up to 3 minutes)...", flush=True)
+
+
+def phone_login(user_id):
+    cookie = sso.login(user_id, on_number=show_number)
+    auth.save_cookie(cookie)
+    cfg = workspace.load_config()
+    if cfg.get("kaist_id") != user_id:
+        cfg["kaist_id"] = user_id
+        workspace.save_config(cfg)
+    print("Logged in.")
+    return Client(cookie=cookie)
+
+
+def connect():
+    for cookie in auth.cookie_candidates():
+        cl = Client(cookie=cookie)
+        try:
+            cl.check()
+            return cl
+        except SessionExpired:
+            continue
+    kid = workspace.load_config().get("kaist_id")
+    if kid and sys.stdin.isatty():
+        print("No live KLMS session. Sending a login request to your phone.")
+        return phone_login(kid)
+    if kid:
+        raise SessionExpired("KLMS session expired. Run `nubzuki login` and tap the number on your phone.")
+    raise auth.AuthError("No live KLMS session. Run `nubzuki login` to log in with the KAIST app.")
+
+
 def cmd_login(a):
-    print("Copy the MoodleSession value from your browser: DevTools > Application > Cookies > klms.kaist.ac.kr")
-    v = getpass.getpass("MoodleSession: ").strip()
-    if not v:
-        sys.exit("Empty input.")
-    if "=" not in v:
-        v = f"MoodleSession={v}"
-    auth.save_cookie(v)
-    Client(cookie=v).check()
-    print(f"Logged in. Saved to {auth.COOKIE_FILE} (mode 600)")
+    if a.cookie:
+        print("Copy the MoodleSession value from your browser: DevTools > Application > Cookies > klms.kaist.ac.kr")
+        v = getpass.getpass("MoodleSession: ").strip()
+        if not v:
+            sys.exit("Empty input.")
+        if "=" not in v:
+            v = f"MoodleSession={v}"
+        auth.save_cookie(v)
+        Client(cookie=v).check()
+        print(f"Logged in. Saved to {auth.COOKIE_FILE} (mode 600)")
+        return
+    kid = a.id or workspace.load_config().get("kaist_id") or input("KAIST ID: ").strip()
+    if not kid:
+        sys.exit("Empty KAIST ID.")
+    phone_login(kid)
 
 
 def cmd_init(a):
@@ -37,7 +77,7 @@ def cmd_init(a):
     if not root:
         default = os.path.join(os.path.expanduser("~"), "KAIST")
         root = input(f"Where should semester folders live? [{default}]: ").strip() or default
-    sem, courses = discover(Client())
+    sem, courses = discover(connect())
     ws, created = workspace.init(root, sem, courses)
     y, s = sem[:4], sem[4:]
     print(f"\n{SEMESTER_NAME.get(s, s)} {y} workspace: {ws.path}")
@@ -62,7 +102,7 @@ def cmd_courses(a):
 
 def cmd_sweep(a):
     ws = need_ws()
-    rep = run(Client(), ws, since=a.since, download=a.download, show_all=a.all,
+    rep = run(connect(), ws, since=a.since, download=a.download, show_all=a.all,
               out=(lambda *_: None) if a.json else print)
     if a.json:
         print(json.dumps(rep, ensure_ascii=False, indent=2))
@@ -73,7 +113,7 @@ def cmd_read(a):
         sys.exit("usage: nubzuki read <board> <bwid> [<board> <bwid> ...]")
     ws = workspace.find()
     by_board = {b: c for c in (ws.courses if ws else []) for b in c.get("boards", {}).values()}
-    cl = Client()
+    cl = connect()
     for bid, bwid in zip(a.ids[0::2], a.ids[1::2]):
         text, files = board.article(cl, bid, bwid)
         print(f"\n{'=' * 70}\n### board={bid} bwid={bwid}\n{'=' * 70}\n{text[:6000]}")
@@ -97,15 +137,10 @@ def cmd_dl(a):
 
 
 def cmd_text(a):
-    p = a.file
-    if p.lower().endswith(".pptx"):
-        print(pptx_text(p))
-    elif p.lower().endswith(".pdf"):
-        if not shutil.which("pdftotext"):
-            sys.exit("pdftotext is required (brew install poppler / apt install poppler-utils).")
-        subprocess.run(["pdftotext", "-layout", p, "-"])
-    else:
-        sys.exit("Only .pptx and .pdf are supported.")
+    try:
+        print(file_text(a.file))
+    except TextError as e:
+        sys.exit(str(e))
 
 
 def main(argv=None):
@@ -116,7 +151,10 @@ def main(argv=None):
     p.add_argument("--version", action="version", version=__version__)
     sp = p.add_subparsers(dest="cmd", required=True)
 
-    sp.add_parser("login", help="save your MoodleSession cookie manually").set_defaults(fn=cmd_login)
+    s = sp.add_parser("login", help="log in by tapping a number in the KAIST app (or paste a cookie)")
+    s.add_argument("--id", help="your KAIST ID (remembered after the first login)")
+    s.add_argument("--cookie", action="store_true", help="paste a MoodleSession cookie instead")
+    s.set_defaults(fn=cmd_login)
 
     s = sp.add_parser("init", help="create the current semester folder (e.g. 2026F) with one folder per course")
     s.add_argument("--root", help="where semester folders live (default: ~/KAIST)")
@@ -150,7 +188,7 @@ def main(argv=None):
     a = p.parse_args(argv)
     try:
         a.fn(a)
-    except (KlmsError, auth.AuthError) as e:
+    except (KlmsError, auth.AuthError, sso.SSOError) as e:
         sys.exit(f"error: {e}\n(state file left untouched)")
 
 

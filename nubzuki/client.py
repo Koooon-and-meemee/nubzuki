@@ -36,7 +36,7 @@ class Client:
         return path if path.startswith("http") else f"{BASE}/{path.lstrip('/')}"
 
     def _open(self, url, timeout=60):
-        req = urllib.request.Request(url, headers={"Cookie": self.cookie, "User-Agent": UA})
+        req = urllib.request.Request(url, headers={"Cookie": self.cookie, "User-Agent": UA, "Accept-Language": "ko-KR,ko;q=0.9"})
         return urllib.request.urlopen(req, timeout=timeout)
 
     def get(self, path, tries=4):

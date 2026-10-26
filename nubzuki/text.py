@@ -1,5 +1,7 @@
 import html as H
 import re
+import shutil
+import subprocess
 import zipfile
 from xml.etree import ElementTree as ET
 
@@ -44,3 +46,22 @@ def pptx_text(path):
             if s and (not kind or len(s) > 10):
                 out.append(f"[{kind}{num(n)}] {s}")
     return "\n".join(out)
+
+
+class TextError(RuntimeError):
+    pass
+
+
+def file_text(path):
+    low = path.lower()
+    if low.endswith(".pptx"):
+        return pptx_text(path)
+    if low.endswith(".pdf"):
+        if not shutil.which("pdftotext"):
+            raise TextError("pdftotext is required (brew install poppler / apt install poppler-utils).")
+        r = subprocess.run(["pdftotext", "-layout", path, "-"], capture_output=True)
+        return r.stdout.decode("utf8", "replace")
+    if low.endswith((".txt", ".md")):
+        with open(path, encoding="utf-8", errors="replace") as f:
+            return f.read()
+    raise TextError("Only .pptx, .pdf, .txt and .md are supported.")

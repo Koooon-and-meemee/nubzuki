@@ -187,15 +187,20 @@ def _hint():
             "  - save your MoodleSession value with `nubzuki login`.")
 
 
-def cookie_header():
+def cookie_candidates():
     v, _ = _from_env_or_file()
     if v:
-        return v
+        yield v
     for fn in (_from_browser_cookie3, _from_macos_chrome, _from_firefox):
         try:
             v = fn()
         except AuthError:
             v = None
         if v:
-            return v
+            yield v
+
+
+def cookie_header():
+    for v in cookie_candidates():
+        return v
     raise AuthError("No KLMS cookie found.\n" + _hint())

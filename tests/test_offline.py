@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from unittest import mock
 
-from nubzuki import auth, discover, workspace
+from nubzuki import auth, discover, seed, sso, workspace
 from nubzuki.sweep import display_names
 from nubzuki.text import table_rows
 
@@ -101,6 +101,33 @@ class Cookies(unittest.TestCase):
             with self.assertRaises(auth.AuthError) as e:
                 auth.cookie_header()
             self.assertIn("nubzuki login", str(e.exception))
+
+
+class Seed(unittest.TestCase):
+    def test_rfc4269_vector(self):
+        self.assertEqual(seed.encrypt_block(bytes(16), bytes(range(16))).hex(),
+                         "5ebac6e0054e166819aff1cc6d346cdb")
+
+    def test_cbc_matches_kaist_js(self):
+        key = bytes(range(16))
+        iv = bytes(range(15, -1, -1))
+        data = b'{"login_id":"student","agt_id":"kaist-prod-klms"}'
+        self.assertEqual(seed.encrypt_cbc(key, iv, data).hex(),
+                         "b9f1e0d10123846af22019b92e96ea302c27ad374d36aaa9aed21e16799df10c"
+                         "b5b631a7f3e30b114dec39fe6c65ab9bf467b1e444f1469fbe2438e7fbf64973")
+
+
+class Sso(unittest.TestCase):
+    def test_push_number(self):
+        html = '<div>인증번호</div><span>4</span><span>7</span><p class="num">47</p><p>인증 대기 중입니다.</p>'
+        self.assertEqual(sso.push_number(html), "47")
+
+    def test_cooldown(self):
+        with tempfile.TemporaryDirectory() as td, mock.patch.object(sso, "LAST_PUSH", os.path.join(td, "p")), \
+                mock.patch.object(sso, "CONFIG_DIR", td):
+            self.assertEqual(sso.cooldown_left(), 0)
+            sso._mark_push()
+            self.assertGreater(sso.cooldown_left(), 50)
 
 
 class Cli(unittest.TestCase):
