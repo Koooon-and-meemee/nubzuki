@@ -1,4 +1,9 @@
-<h1 align="center">nubzuki</h1>
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/logo-dark.svg">
+    <img src="assets/logo-light.svg" alt="NUBZUKI" width="420">
+  </picture>
+</p>
 
 <p align="center"><b>KAIST KLMS for you and your AI agent.</b><br>
 Tap a number on your phone once, then ask what's new, what's due, and what the lecture notes say.</p>
