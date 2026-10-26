@@ -20,6 +20,7 @@ def save_cookie(value):
     fd = os.open(COOKIE_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w", encoding="utf-8") as f:
         f.write(value.strip() + "\n")
+    os.chmod(COOKIE_FILE, 0o600)
 
 
 def _from_env_or_file():
@@ -101,12 +102,8 @@ def _chrome_profiles():
 def _from_macos_chrome():
     if sys.platform != "darwin":
         return None
-    profiles = _chrome_profiles()
-    if not profiles:
-        return None
-    key = _chrome_key()
-    best = None
-    for name, db in profiles:
+    found = []
+    for _, db in _chrome_profiles():
         with tempfile.TemporaryDirectory() as td:
             tmp = os.path.join(td, "Cookies")
             shutil.copy2(db, tmp)
@@ -115,6 +112,14 @@ def _from_macos_chrome():
                 "select name, encrypted_value, last_access_utc from cookies where host_key=?",
                 (DOMAIN,)).fetchall()
             con.close()
+        if any(n == "MoodleSession" for n, _, _ in rows):
+            found.append(rows)
+    if not found:
+        return None
+    # Only now ask the Keychain, so people who never used KLMS in Chrome don't get a macOS password prompt
+    key = _chrome_key()
+    best = None
+    for rows in found:
         parts, last = [], 0
         for n, ev, la in rows:
             v = _decrypt(ev, key)
@@ -194,7 +199,7 @@ def cookie_candidates():
     for fn in (_from_browser_cookie3, _from_macos_chrome, _from_firefox):
         try:
             v = fn()
-        except AuthError:
+        except (AuthError, OSError, sqlite3.Error):
             v = None
         if v:
             yield v

@@ -40,10 +40,15 @@ def gemini_config():
 
 
 def _backup_and_write(path, text):
+    """Replace another app's config safely: keep a .bak, write atomically, keep the file's permissions
+    (Codex and Claude configs can hold API keys and are often mode 600)."""
+    tmp = path + ".nubzuki-tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(text)
     if os.path.exists(path):
         shutil.copy2(path, path + ".bak")
-    with open(path, "w", encoding="utf-8") as f:
-        f.write(text)
+        shutil.copymode(path, tmp)
+    os.replace(tmp, path)
 
 
 def add_to_toml(path, cmd, args):
@@ -54,7 +59,7 @@ def add_to_toml(path, cmd, args):
             text = f.read()
     # JSON string and array syntax is valid TOML for plain strings
     block = f"[mcp_servers.{NAME}]\ncommand = {json.dumps(cmd)}\nargs = {json.dumps(args)}\n"
-    m = re.search(rf"(?ms)^\[mcp_servers\.{NAME}\]\s*\n.*?(?=^\[|\Z)", text)
+    m = re.search(rf"""(?ms)^\[\s*mcp_servers\s*\.\s*["']?{NAME}["']?\s*\]\s*\n.*?(?=^\[|\Z)""", text)
     if m and m.group(0).strip() == block.strip():
         return "same"
     if m:
@@ -110,6 +115,13 @@ def add_to_claude_code(cmd, args):
     claude = shutil.which("claude")
     if not claude:
         return None
+    try:
+        with open(os.path.join(os.path.expanduser("~"), ".claude.json"), encoding="utf-8") as f:
+            entry = json.load(f).get("mcpServers", {}).get(NAME, {})
+        if entry.get("command") == cmd and entry.get("args") == args:
+            return "same"
+    except (OSError, ValueError, AttributeError):
+        pass
     subprocess.run([claude, "mcp", "remove", NAME, "-s", "user"], capture_output=True)
     r = subprocess.run([claude, "mcp", "add", NAME, "-s", "user", "--", cmd, *args], capture_output=True, text=True)
     if r.returncode:
@@ -129,7 +141,10 @@ def install(targets=None, out=print):
         except RuntimeError as e:
             out(f"  ✗ Claude Code: {e}")
         else:
-            if st:
+            if st == "same":
+                done += 1
+                out("  ✓ Claude Code: already set up.")
+            elif st:
                 done += 1
                 out("  ✓ Claude Code: registered for all projects. Start a new `claude` session to use it.")
             elif targets:

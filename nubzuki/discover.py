@@ -1,6 +1,6 @@
 import re
-from concurrent.futures import ThreadPoolExecutor
 
+from .client import KlmsError
 from .text import strip
 
 
@@ -18,7 +18,7 @@ def semester_of(dash_html):
     y = re.search(r'name="year">.*?<option value="(\d{4})"[^>]*selected', dash_html, re.S)
     s = re.search(r'name="semester">.*?<option value="(\d+)"[^>]*selected', dash_html, re.S)
     if not (y and s):
-        raise RuntimeError("Could not find the year/semester on the dashboard (did the KLMS layout change?).")
+        raise KlmsError("Could not find the year/semester on the dashboard (did the KLMS layout change?).")
     return y.group(1) + SEMESTER_SUFFIX.get(s.group(1), s.group(1))
 
 
@@ -78,9 +78,6 @@ def discover(client):
     sem = semester_of(dash)
     courses = courses_of(dash)
     sitewide = {int(b) for b, _ in _BOARD.findall(dash)}
-
-    with ThreadPoolExecutor(2) as ex:
-        pages = list(ex.map(lambda c: client.get(f"/course/view.php?id={c['id']}"), courses))
-    for c, h in zip(courses, pages):
-        c["boards"] = boards_of(h, sitewide)
+    for c in courses:
+        c["boards"] = boards_of(client.get(f"/course/view.php?id={c['id']}"), sitewide)
     return sem, courses

@@ -4,10 +4,10 @@ import os
 import re
 import urllib.parse
 from collections import Counter
-from concurrent.futures import ThreadPoolExecutor
 
 from . import board, workspace
-from .client import filename_of
+from .client import KlmsError, filename_of
+from .discover import semester_of
 from .text import table_rows
 
 GRADE_SKIP = ("성적 항목", "합계", "Grade item", "Course total")
@@ -73,8 +73,34 @@ def unique(path):
     return path
 
 
-def run(client, ws, since=None, download=False, show_all=False, save=True, out=print):
-    client.check()
+def save_file(client, ws, course, url):
+    """Download a course file into <course>/files/, or return where it was saved before."""
+    rel = ws.saved_path(url)
+    if rel:
+        return os.path.join(ws.path, rel)
+    d = os.path.join(ws.folder(course), "files")
+    os.makedirs(d, exist_ok=True)
+    plain = os.path.join(d, workspace.safe(filename_of(url)))
+    # a same-named file from before the download index existed is reused when its size matches
+    dest = client.download(url, unique(plain), same_as=plain if os.path.exists(plain) else None)
+    ws.remember_download(url, dest)
+    return dest
+
+
+def new_semester(dash, ws):
+    """The semester the dashboard shows, if it differs from the workspace's (time to run `nubzuki init`)."""
+    try:
+        sem = semester_of(dash)
+    except KlmsError:
+        return None
+    return sem if ws.info.get("semester") and sem != ws.info["semester"] else None
+
+
+def run(client, ws, since=None, download=False, show_all=False, save=True, out=print, progress=None):
+    """Compare KLMS with the last saved state. Requests go one at a time:
+    Moodle locks the session per request, so running two at once is no faster."""
+    step = progress or (lambda *_: None)
+    dash = client.check()
     old = ws.load_state()
     first = not old and not show_all
     if first and not since:
@@ -85,8 +111,10 @@ def run(client, ws, since=None, download=False, show_all=False, save=True, out=p
     report = {"posts": [], "files": [], "grades": [], "deadlines": []}
 
     jobs = [(c, kind, bid) for c in ws.courses for kind, bid in c.get("boards", {}).items()]
-    with ThreadPoolExecutor(2) as ex:
-        results = list(ex.map(lambda j: board.posts(client, j[2]), jobs))
+    results = []
+    for i, (_, _, bid) in enumerate(jobs, 1):
+        step(f"boards {i}/{len(jobs)}")
+        results.append(board.posts(client, bid))
 
     head = {"boards": False, "rest": False}
 
@@ -106,9 +134,10 @@ def run(client, ws, since=None, download=False, show_all=False, save=True, out=p
         out(f"\n[{c['code']} {c['name']}] {BOARD_LABEL.get(kind, kind)} (board={bid})")
         for r in fresh:
             out(f"   NEW [{r['date']}] bwid={r['bwid']}  {r['title']}")
-            report["posts"].append({**r, "course": c["code"], "board": bid, "kind": kind})
+            report["posts"].append({**r, "course": c["code"], "course_name": c["name"], "board": bid, "kind": kind})
 
-    for c in ws.courses:
+    for n, c in enumerate(ws.courses, 1):
+        step(f"courses {n}/{len(ws.courses)}")
         cid = c["id"]
         chunks = []
         for mod in ("assign", "quiz"):
@@ -120,7 +149,8 @@ def run(client, ws, since=None, download=False, show_all=False, save=True, out=p
             changed = [r for r in t if r not in prev]
             if changed:
                 chunks.append(f"  <{mod}>\n    " + "\n    ".join(changed))
-                report["deadlines"] += [{"course": c["code"], "module": mod, "row": r} for r in changed]
+                report["deadlines"] += [{"course": c["code"], "course_name": c["name"], "module": mod, "row": r}
+                                        for r in changed]
 
         files = course_files(client, cid)
         key = f"files:{cid}"
@@ -131,14 +161,13 @@ def run(client, ws, since=None, download=False, show_all=False, save=True, out=p
         if newf and not first:
             lines = []
             for f in newf:
-                name = names[f]
+                item = {"course": c["code"], "course_name": c["name"], "url": f, "name": names[f]}
                 if download:
-                    dest = unique(os.path.join(ws.folder(c), "files", workspace.safe(filename_of(f))))
-                    client.download(f, dest)
-                    lines.append(f"{name}  → {os.path.relpath(dest, ws.path)}")
+                    item["path"] = os.path.relpath(save_file(client, ws, c, f), ws.path)
+                    lines.append(f"{item['name']}  → {item['path']}")
                 else:
-                    lines.append(name)
-                report["files"].append({"course": c["code"], "url": f, "name": name})
+                    lines.append(item["name"])
+                report["files"].append(item)
             chunks.append("  <new files>\n    " + "\n    ".join(lines))
 
         g = grade_rows(client, cid)
@@ -148,7 +177,7 @@ def run(client, ws, since=None, download=False, show_all=False, save=True, out=p
         counts["grades"] += len(g)
         if newg:
             chunks.append("  <grade changes>\n    " + "\n    ".join(newg))
-            report["grades"] += [{"course": c["code"], "row": x} for x in newg]
+            report["grades"] += [{"course": c["code"], "course_name": c["name"], "row": x} for x in newg]
 
         if chunks and not first:
             section("rest", "Assignments, quizzes, files, grades")
@@ -157,6 +186,9 @@ def run(client, ws, since=None, download=False, show_all=False, save=True, out=p
 
     if not first and not any(report.values()):
         out("Nothing new since the last run.")
+    sem = new_semester(dash, ws)
+    if sem:
+        out(f"\nKLMS has moved on to {sem}. Run `nubzuki init` to start following it.")
     if first:
         out(f"\nFirst run: saved a baseline of {counts['posts']} posts, {counts['assign'] + counts['quiz']} "
             f"assignments/quizzes, {counts['files']} files and {counts['grades']} grade rows "
@@ -166,4 +198,6 @@ def run(client, ws, since=None, download=False, show_all=False, save=True, out=p
     if save:
         ws.save_state(new)
         out(f"\n(state saved: {ws.state_file})")
+    if sem:
+        report["new_semester"] = sem
     return report

@@ -1,4 +1,7 @@
+import http.client
+import os
 import re
+import shutil
 import time
 import urllib.error
 import urllib.parse
@@ -31,7 +34,8 @@ def logged_in(html):
 class _KeepCookieOnHost(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         new = super().redirect_request(req, fp, code, msg, headers, newurl)
-        if new is not None and urllib.parse.urlsplit(newurl).hostname != HOST:
+        u = urllib.parse.urlsplit(newurl)
+        if new is not None and (u.hostname != HOST or u.scheme != "https"):
             new.remove_header("Cookie")
         return new
 
@@ -53,6 +57,7 @@ class Client:
     def __init__(self, cookie=None, strict=True):
         self.cookie = cookie or cookie_header()
         self.strict = strict
+        self._dash = None
 
     def url(self, path):
         return klms_url(path)
@@ -63,38 +68,61 @@ class Client:
 
     def get(self, path, tries=4):
         url = self.url(path)
-        html = ""
+        html, err = "", None
         for i in range(tries):
+            if i:
+                time.sleep(3 * i)
             try:
                 with self._open(url) as r:
-                    html = r.read().decode("utf8", "replace")
-            except (urllib.error.URLError, TimeoutError):
-                time.sleep(3 * (i + 1))
+                    html, err = r.read().decode("utf8", "replace"), None
+            except urllib.error.HTTPError as e:
+                e.close()
+                if e.code < 500:
+                    raise KlmsError(f"KLMS returned HTTP {e.code} for {url}")
+                html, err = "", e
                 continue
-            if "session lock" in html:
-                time.sleep(3 * (i + 1))
+            except (OSError, http.client.HTTPException) as e:
+                html, err = "", e
                 continue
-            break
+            if "session lock" not in html:
+                break
+        if err is not None:
+            raise KlmsError(f"Could not reach KLMS ({getattr(err, 'reason', err)}). Check your connection and try again.")
         if self.strict and not logged_in(html):
             if "session lock" in html:
                 raise SessionLocked(f"Moodle session lock did not clear, try again shortly: {url}")
             raise SessionExpired(f"Not logged in: {url}")
         return html
 
-    def download(self, path, dest):
+    def download(self, path, dest, same_as=None):
+        """Save a file to dest. Writes to dest.part first, so a failed download never leaves a broken file behind.
+        If same_as is an existing file of exactly the size KLMS reports, return it instead of downloading again."""
         url = urllib.parse.quote(self.url(path), safe=":/?=&%")
-        with self._open(url, timeout=300) as r, open(dest, "wb") as f:
-            while True:
-                b = r.read(1 << 16)
-                if not b:
-                    break
-                f.write(b)
+        part = dest + ".part"
+        try:
+            with self._open(url, timeout=300) as r:
+                final = urllib.parse.urlsplit(r.geturl())
+                if final.hostname != HOST or final.path.startswith("/login/"):
+                    raise SessionExpired(f"Not logged in: {url}")
+                size = r.headers.get("Content-Length")
+                if same_as and size and size.isdigit() and int(size) == os.path.getsize(same_as):
+                    return same_as
+                with open(part, "wb") as f:
+                    shutil.copyfileobj(r, f, 1 << 16)
+            os.replace(part, dest)
+        finally:
+            if os.path.exists(part):
+                os.remove(part)
         return dest
 
-    def check(self):
+    def check(self, max_age=60):
+        """The dashboard page, which also proves the session is alive. Reused for a minute to save a request."""
+        if self._dash and time.time() - self._dash[0] < max_age:
+            return self._dash[1]
         h = self.get("/my/")
         if not logged_in(h):
-            raise SessionExpired("No KLMS session. Log in again in your browser.")
+            raise SessionExpired("No live KLMS session.")
+        self._dash = (time.time(), h)
         return h
 
 

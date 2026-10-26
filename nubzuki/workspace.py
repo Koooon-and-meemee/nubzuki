@@ -1,6 +1,9 @@
 import json
 import os
 import re
+import shutil
+import time
+import urllib.parse
 
 from .auth import CONFIG_DIR
 
@@ -14,8 +17,11 @@ def read_json(path):
 
 
 def write_json(path, data, **kw):
-    with open(path, "w", encoding="utf-8") as f:
+    """Write through a temp file, so a crash or full disk never leaves half a JSON file behind."""
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, **kw)
+    os.replace(tmp, path)
 
 
 def load_config():
@@ -39,6 +45,7 @@ class Workspace:
         self.meta = os.path.join(path, META)
         self.info_file = os.path.join(self.meta, "workspace.json")
         self.state_file = os.path.join(self.meta, "state.json")
+        self.downloads_file = os.path.join(self.meta, "downloads.json")
         self.info = read_json(self.info_file) if os.path.exists(self.info_file) else {}
 
     @property
@@ -53,15 +60,55 @@ class Workspace:
         write_json(self.info_file, self.info, indent=2)
 
     def load_state(self):
-        if os.path.exists(self.state_file):
-            return read_json(self.state_file)
+        for p in (self.state_file, self.state_file + ".bak"):
+            if os.path.exists(p):
+                try:
+                    return read_json(p)
+                except ValueError:
+                    continue
         return {}
+
+    def state_time(self):
+        """When the last sweep saved its state, as local ISO time, or None."""
+        if not os.path.exists(self.state_file):
+            return None
+        return time.strftime("%Y-%m-%d %H:%M", time.localtime(os.path.getmtime(self.state_file)))
 
     def save_state(self, state):
         os.makedirs(self.meta, exist_ok=True)
         if os.path.exists(self.state_file):
-            os.replace(self.state_file, self.state_file + ".bak")
+            shutil.copy2(self.state_file, self.state_file + ".bak")
         write_json(self.state_file, state)
+
+    def match(self, key):
+        """Courses matching a code, folder, KLMS id or part of the name.
+        Sections of one course (e.g. lecture and recitation) share a code, so this can return several."""
+        k = str(key).replace(" ", "").upper()
+        exact = [c for c in self.courses if k in (c["code"].upper(), c["folder"].upper(), str(c["id"]))]
+        return exact or [c for c in self.courses if k and k in c["name"].replace(" ", "").upper()]
+
+    def saved_path(self, url):
+        """Where a KLMS file URL was downloaded before, if the file is still there."""
+        try:
+            rel = read_json(self.downloads_file).get(file_key(url))
+        except (OSError, ValueError):
+            return None
+        return rel if rel and os.path.exists(os.path.join(self.path, rel)) else None
+
+    def remember_download(self, url, dest):
+        try:
+            seen = read_json(self.downloads_file)
+        except (OSError, ValueError):
+            seen = {}
+        seen[file_key(url)] = os.path.relpath(dest, self.path)
+        os.makedirs(self.meta, exist_ok=True)
+        write_json(self.downloads_file, seen, indent=1)
+
+
+def file_key(url):
+    """The same file can come as an absolute, relative or %-encoded URL; key them all the same way."""
+    i = url.find("pluginfile.php/")
+    return urllib.parse.unquote((url[i:] if i >= 0 else url).split("?")[0])
 
 
 def find(start=None):

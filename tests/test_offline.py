@@ -4,11 +4,15 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
+import io
+import threading
 import unittest
+import urllib.error
 import urllib.request
+import zipfile
 from unittest import mock
 
-from nubzuki import auth, discover, seed, sso, workspace
+from nubzuki import auth, discover, seed, sso, text, workspace
 from nubzuki.sweep import display_names
 from nubzuki.text import table_rows
 
@@ -177,13 +181,95 @@ class Mcp(unittest.TestCase):
             self.assertEqual(srv.call("login", {"id": "student"})["number"], "47")
             st = srv.call("login_status", {})
             self.assertEqual(st["status"], "logged_in")
-            self.assertIn("init", st["next"])
             save.assert_called_once_with("MoodleSession=x")
             self.assertEqual(workspace.load_config()["kaist_id"], "student")
-            with self.assertRaises(mcp.ToolError) as e:
-                srv.call("courses", {})
-            self.assertIn("init", str(e.exception))
+            # a live session means no second push to the phone
+            srv.connect = mock.Mock()
+            self.assertEqual(srv.call("login", {})["status"], "logged_in")
+            save.assert_called_once()
 
+    def test_first_use_sets_up_the_semester_folder(self):
+        from nubzuki import mcp
+        courses = [{"id": 1, "code": "CS.10001", "section": "A", "name": "Intro", "boards": {"notice": 9}}]
+        with tempfile.TemporaryDirectory() as td, \
+                mock.patch.object(workspace, "CONFIG_FILE", os.path.join(td, "cfg.json")), \
+                mock.patch.object(workspace, "CONFIG_DIR", td), \
+                mock.patch.object(mcp, "discover", return_value=("2026F", courses)):
+            workspace.save_config({"root": td})
+            srv = mcp.Server()
+            srv.connect = mock.Mock()
+            out = srv.call("courses", {})
+            self.assertEqual(out["semester"], "2026F")
+            self.assertTrue(os.path.isdir(os.path.join(td, "2026F", "CS.10001", "files")))
+
+    def test_slow_sweep_is_collected_on_the_next_call(self):
+        from nubzuki import mcp
+        release = threading.Event()
+
+        def slow_run(cl, ws, **kw):
+            kw["progress"]("boards 1/3")
+            release.wait(5)
+            return {"posts": [], "files": [], "grades": [], "deadlines": []}
+        ws = mock.Mock(courses=[])
+        ws.load_state.return_value = {"board:1": []}
+        srv = mcp.Server()
+        srv.connect = mock.Mock()
+        with mock.patch.object(workspace, "find", return_value=ws), mock.patch.object(mcp, "run", slow_run), \
+                mock.patch.object(mcp, "SWEEP_WAIT", 0.2):
+            first = srv.call("sweep", {})
+            self.assertEqual(first["status"], "running")
+            self.assertEqual(first["progress"], "boards 1/3")
+            release.set()
+            done = srv.call("sweep", {})
+            self.assertEqual(done["posts"], [])
+            self.assertFalse(done["first_run"])
+            self.assertIsNone(srv.sweep_job)
+
+    def test_deadlines_come_from_the_last_sweep(self):
+        from nubzuki import mcp
+        with tempfile.TemporaryDirectory() as td:
+            ws = workspace.Workspace(td)
+            ws.info = {"semester": "2026F", "courses": [
+                {"id": 1, "code": "CS.10001", "section": "A", "name": "Intro", "folder": "CS.10001"},
+                {"id": 2, "code": "MAS.10002", "section": "B", "name": "Calculus", "folder": "MAS.10002"}]}
+            ws.save_state({"assign:1": ["HW 3 | 2026-10-28 23:59 | not submitted"], "quiz:1": [], "assign:2": []})
+            srv = mcp.Server()
+            with mock.patch.object(workspace, "find", return_value=ws):
+                out = srv.call("deadlines", {})
+            self.assertEqual([c["course"] for c in out["courses"]], ["CS.10001"])
+            self.assertIn("HW 3", out["courses"][0]["assign"][0])
+            self.assertTrue(out["today"][:4].isdigit())
+            self.assertIsNotNone(out["as_of"])
+
+    def test_courses_by_code_or_name(self):
+        from nubzuki import mcp
+        ws = workspace.Workspace(tempfile.gettempdir())
+        ws.info = {"courses": [
+            {"id": 1, "code": "MAS.10002", "section": "AP", "name": "미적분학Ⅱ", "folder": "MAS.10002"},
+            {"id": 2, "code": "MAS.10002", "section": "EF", "name": "미적분학Ⅱ", "folder": "MAS.10002"},
+            {"id": 3, "code": "BS.10020", "section": "I", "name": "일반생물학", "folder": "BS.10020"},
+            {"id": 4, "code": "PH.10042", "section": "D", "name": "일반물리학 II", "folder": "PH.10042"}]}
+        srv = mcp.Server()
+        self.assertEqual([c["id"] for c in srv.courses_for(ws, "mas.10002")], [1, 2])
+        self.assertEqual([c["id"] for c in srv.courses_for(ws, "미적분")], [1, 2])
+        self.assertEqual([c["id"] for c in srv.courses_for(ws, "일반 물리")], [4])
+        with self.assertRaises(mcp.ToolError) as e:
+            srv.courses_for(ws, "일반")
+        self.assertIn("BS.10020", str(e.exception))
+
+
+    def test_download_once_whatever_the_url_form(self):
+        from nubzuki import sweep
+        with tempfile.TemporaryDirectory() as td:
+            ws = workspace.Workspace(td)
+            course = {"id": 1, "code": "CS.10001", "folder": "CS.10001"}
+            cl = mock.Mock()
+            cl.download.side_effect = lambda url, dest, same_as=None: open(dest, "wb").close() or dest
+            a = sweep.save_file(cl, ws, course, "pluginfile.php/7/mod_resource/content/1/Lec 9.pdf")
+            b = sweep.save_file(cl, ws, course, "https://klms.kaist.ac.kr/pluginfile.php/7/mod_resource/content/1/Lec%209.pdf")
+            self.assertEqual(a, b)
+            self.assertEqual(cl.download.call_count, 1)
+            self.assertTrue(a.endswith(os.path.join("CS.10001", "files", "Lec 9.pdf")))
 
     def test_bad_input_is_a_tool_error(self):
         out = self.rpc({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "read_post", "arguments": {}}},
@@ -237,11 +323,111 @@ class Client(unittest.TestCase):
         self.assertEqual(same.get_header("Cookie"), "MoodleSession=s")
         self.assertIsNone(other.get_header("Cookie"))
 
+    def test_network_failure_is_not_an_expired_session(self):
+        from nubzuki import client
+        cl = client.Client(cookie="MoodleSession=s")
+        with mock.patch.object(cl, "_open", side_effect=urllib.error.URLError("offline")), \
+                mock.patch.object(client.time, "sleep"):
+            with self.assertRaises(client.KlmsError) as e:
+                cl.get("/my/")
+        self.assertNotIsInstance(e.exception, client.SessionExpired)
+        self.assertIn("Could not reach KLMS", str(e.exception))
+
+    def test_404_is_not_retried(self):
+        from nubzuki import client
+        cl = client.Client(cookie="MoodleSession=s")
+        err = urllib.error.HTTPError("https://klms.kaist.ac.kr/x", 404, "Not Found", {}, io.BytesIO())
+        with mock.patch.object(cl, "_open", side_effect=err) as op, mock.patch.object(client.time, "sleep"):
+            with self.assertRaises(client.KlmsError):
+                cl.get("/x")
+        self.assertEqual(op.call_count, 1)
+
+    def test_download_never_saves_a_login_page(self):
+        from nubzuki import client
+
+        class Resp(io.BytesIO):
+            def __init__(self, url, body):
+                super().__init__(body)
+                self.url = url
+                self.headers = {}
+
+            def geturl(self):
+                return self.url
+        cl = client.Client(cookie="MoodleSession=s")
+        with tempfile.TemporaryDirectory() as td:
+            dest = os.path.join(td, "Lec 9.pptx")
+            with mock.patch.object(cl, "_open", return_value=Resp("https://klms.kaist.ac.kr/login/ssologin.php", b"<html>")):
+                with self.assertRaises(client.SessionExpired):
+                    cl.download("pluginfile.php/1/mod_resource/content/1/Lec 9.pptx", dest)
+            self.assertEqual(os.listdir(td), [])
+            ok = Resp("https://klms.kaist.ac.kr/pluginfile.php/1/mod_resource/content/1/Lec%209.pptx", b"PK data")
+            ok.headers = {"Content-Length": "7"}
+            with mock.patch.object(cl, "_open", return_value=ok):
+                cl.download("pluginfile.php/1/mod_resource/content/1/Lec 9.pptx", dest)
+            self.assertEqual(os.listdir(td), ["Lec 9.pptx"])
+            # the same file again under another name is recognised by its size and not written twice
+            again = Resp(ok.url, b"PK data")
+            again.headers = {"Content-Length": "7"}
+            with mock.patch.object(cl, "_open", return_value=again):
+                got = cl.download("x", os.path.join(td, "Lec 9 (2).pptx"), same_as=dest)
+            self.assertEqual(got, dest)
+            self.assertEqual(os.listdir(td), ["Lec 9.pptx"])
+
     def test_filename_cannot_escape(self):
         from nubzuki.client import filename_of
         self.assertEqual(filename_of("https://klms.kaist.ac.kr/pluginfile.php/1/a/..%2F..%2Fx.pdf"), ".._.._x.pdf")
         self.assertEqual(filename_of("https://klms.kaist.ac.kr/pluginfile.php/1/a/%2E%2E"), "_")
         self.assertEqual(filename_of("https://klms.kaist.ac.kr/pluginfile.php/1/a/Lec%209.pdf?forcedownload=1"), "Lec 9.pdf")
+
+
+class Text(unittest.TestCase):
+    def office(self, path, files):
+        with zipfile.ZipFile(path, "w") as z:
+            for name, xml in files.items():
+                z.writestr(name, xml)
+
+    def test_pptx_and_docx(self):
+        a = 'xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"'
+        w = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"'
+        with tempfile.TemporaryDirectory() as td:
+            p = os.path.join(td, "s.pptx")
+            self.office(p, {"ppt/slides/slide2.xml": f'<s {a}><a:t>Krebs cycle</a:t></s>',
+                            "ppt/slides/slide1.xml": f'<s {a}><a:t>Glycolysis</a:t><a:t>2 ATP</a:t></s>'})
+            self.assertEqual(text.file_text(p), "[1] Glycolysis 2 ATP\n[2] Krebs cycle")
+            d = os.path.join(td, "h.docx")
+            self.office(d, {"word/document.xml": f'<w:document {w}><w:body><w:p><w:r><w:t>Due </w:t></w:r>'
+                                                 f'<w:r><w:t>Friday</w:t></w:r></w:p><w:p/></w:body></w:document>'})
+            self.assertEqual(text.file_text(d), "Due Friday")
+
+    def test_damaged_file(self):
+        with tempfile.TemporaryDirectory() as td:
+            p = os.path.join(td, "bad.pptx")
+            with open(p, "w") as f:
+                f.write("<html>login</html>")
+            with self.assertRaises(text.TextError):
+                text.file_text(p)
+
+    def test_pdf_pages(self):
+        done = subprocess.CompletedProcess([], 0, stdout="첫 장\fsecond\f".encode(), stderr=b"")
+        with mock.patch.object(text, "_pdftotext", return_value="/x/pdftotext"), \
+                mock.patch.object(text.subprocess, "run", return_value=done):
+            self.assertEqual(text.file_text("a.pdf"), "[page 1]\n첫 장\n\n[page 2]\nsecond")
+        scanned = subprocess.CompletedProcess([], 0, stdout=b"\f \f", stderr=b"")
+        with mock.patch.object(text, "_pdftotext", return_value="/x/pdftotext"), \
+                mock.patch.object(text.subprocess, "run", return_value=scanned):
+            with self.assertRaises(text.TextError):
+                text.file_text("scan.pdf")
+
+
+class State(unittest.TestCase):
+    def test_damaged_state_falls_back_to_backup(self):
+        with tempfile.TemporaryDirectory() as td:
+            ws = workspace.Workspace(td)
+            ws.save_state({"board:1": [1]})
+            ws.save_state({"board:1": [1, 2]})
+            with open(ws.state_file, "w") as f:
+                f.write('{"board:1": [1, 2')
+            self.assertEqual(ws.load_state(), {"board:1": [1]})
 
 
 class Install(unittest.TestCase):
@@ -280,6 +466,28 @@ class Install(unittest.TestCase):
                 self.assertEqual(cfg["mcp_servers"]["nubzuki"], {"command": "C:\\nb\\nubzuki.exe", "args": ["mcp"]})
                 self.assertEqual(cfg["mcp_servers"]["other"]["env"], {"K": "v"})
 
+    def test_toml_quoted_key_is_replaced(self):
+        from nubzuki import install
+        with tempfile.TemporaryDirectory() as td:
+            p = os.path.join(td, "config.toml")
+            with open(p, "w", encoding="utf-8") as f:
+                f.write('[mcp_servers."nubzuki"]\ncommand = "old"\n')
+            self.assertEqual(install.add_to_toml(p, "/bin/nubzuki", ["mcp"]), "updated")
+            with open(p, encoding="utf-8") as f:
+                self.assertEqual(f.read(), '[mcp_servers.nubzuki]\ncommand = "/bin/nubzuki"\nargs = ["mcp"]\n')
+
+    @unittest.skipIf(os.name == "nt", "POSIX file modes")
+    def test_private_config_stays_private(self):
+        from nubzuki import install
+        with tempfile.TemporaryDirectory() as td:
+            p = os.path.join(td, "cfg.json")
+            with open(p, "w", encoding="utf-8") as f:
+                f.write('{"apiKey": "secret"}')
+            os.chmod(p, 0o600)
+            install.add_to_json(p, "/bin/nubzuki", ["mcp"])
+            self.assertEqual(os.stat(p).st_mode & 0o777, 0o600)
+            self.assertEqual(sorted(os.listdir(td)), ["cfg.json", "cfg.json.bak"])
+
     def test_allow_tools_once(self):
         from nubzuki import install
         with tempfile.TemporaryDirectory() as td:
@@ -298,9 +506,10 @@ class Install(unittest.TestCase):
 
 class Cli(unittest.TestCase):
     def test_help(self):
-        r = subprocess.run([sys.executable, "-m", "nubzuki", "--help"], capture_output=True, encoding="utf-8")
-        self.assertEqual(r.returncode, 0)
-        self.assertIn("sweep", r.stdout)
+        for args in (["--help"], []):
+            r = subprocess.run([sys.executable, "-m", "nubzuki", *args], capture_output=True, encoding="utf-8")
+            self.assertEqual(r.returncode, 0)
+            self.assertIn("sweep", r.stdout)
 
 
 if __name__ == "__main__":

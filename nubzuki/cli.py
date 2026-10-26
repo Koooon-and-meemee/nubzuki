@@ -11,19 +11,32 @@ from .sweep import run
 from .text import TextError, file_text
 
 
+def note(*args):
+    """Status messages go to stderr, so `--json` output on stdout stays clean."""
+    print(*args, file=sys.stderr, flush=True)
+
+
 def need_ws():
+    """The semester folder. Set up on first use, so `nubzuki init` is only needed to change where it lives."""
     ws = workspace.find()
-    if not ws:
-        sys.exit("No workspace found. Run `nubzuki init` first.")
-    return ws
+    if ws:
+        return ws
+    note("Setting up your semester folder first.")
+    return setup(None, say=note)
+
+
+def progress():
+    if not sys.stderr.isatty():
+        return None
+    return lambda s: (sys.stderr.write(f"\r  checking KLMS: {s}".ljust(40)), sys.stderr.flush())
 
 
 def show_number(n):
     if n:
-        print(f"\n  → Open the KAIST app on your phone and tap  {n}\n")
+        note(f"\n  → Open the KAIST app on your phone and tap  {n}\n")
     else:
-        print("\n  → Approve the request in the KAIST app on your phone.\n")
-    print("Waiting for approval (up to 3 minutes)...", flush=True)
+        note("\n  → Approve the request in the KAIST app on your phone.\n")
+    note("Waiting for approval (up to 3 minutes)...")
 
 
 def phone_login(user_id):
@@ -33,21 +46,30 @@ def phone_login(user_id):
     if cfg.get("kaist_id") != user_id:
         cfg["kaist_id"] = user_id
         workspace.save_config(cfg)
-    print("Logged in.")
-    return Client(cookie=cookie)
+    note("Logged in.")
+    global _client
+    _client = Client(cookie=cookie)
+    return _client
+
+
+_client = None
 
 
 def connect():
+    global _client
+    if _client:
+        return _client
     for cookie in auth.cookie_candidates():
         cl = Client(cookie=cookie)
         try:
             cl.check()
+            _client = cl
             return cl
         except SessionExpired:
             continue
     kid = workspace.load_config().get("kaist_id")
     if kid and sys.stdin.isatty():
-        print("No live KLMS session. Sending a login request to your phone.")
+        note("No live KLMS session. Sending a login request to your phone.")
         return phone_login(kid)
     if kid:
         raise SessionExpired("KLMS session expired. Run `nubzuki login` and tap the number on your phone.")
@@ -66,26 +88,33 @@ def cmd_login(a):
         Client(cookie=v).check()
         print(f"Logged in. Saved to {auth.COOKIE_FILE} (mode 600)")
         return
-    kid = a.id or workspace.load_config().get("kaist_id") or input("KAIST ID: ").strip()
+    kid = a.id or workspace.load_config().get("kaist_id")
+    if not kid:
+        if not sys.stdin.isatty():
+            sys.exit("Pass your KAIST ID: nubzuki login --id <ID>")
+        kid = input("KAIST ID: ").strip()
     if not kid:
         sys.exit("Empty KAIST ID.")
     phone_login(kid)
 
 
-def cmd_init(a):
-    root = a.root or workspace.load_config().get("root")
-    if not root:
-        default = os.path.join(os.path.expanduser("~"), "KAIST")
-        root = input(f"Where should semester folders live? [{default}]: ").strip() or default
+def setup(root, say=None):
+    root = root or workspace.load_config().get("root") or os.path.join(os.path.expanduser("~"), "KAIST")
     sem, courses = discover(connect())
     ws, created = workspace.init(root, sem, courses)
     y, s = sem[:4], sem[4:]
-    print(f"\n{SEMESTER_NAME.get(s, s)} {y} workspace: {ws.path}")
-    for c in courses:
-        mark = "+" if c["folder"] in created else " "
-        sec = f"({c['section']})" if c["section"] else ""
-        print(f"  {mark} {c['folder']:<12} {c['code']}{sec} {c['name']}")
-    print(f"\n{len(courses)} courses, {len(created)} new folders. Each course folder has files/ and notices/.")
+    (say or print)(f"{SEMESTER_NAME.get(s, s)} {y}: {ws.path} ({len(courses)} courses)")
+    if not say:
+        for c in courses:
+            mark = "+" if c["folder"] in created else " "
+            sec = f"({c['section']})" if c["section"] else ""
+            print(f"  {mark} {c['folder']:<12} {c['code']}{sec} {c['name']}")
+        print(f"\n{len(created)} new folders. Each course folder has files/ and notices/.")
+    return ws
+
+
+def cmd_init(a):
+    setup(a.root)
 
 
 def cmd_courses(a):
@@ -102,8 +131,13 @@ def cmd_courses(a):
 
 def cmd_sweep(a):
     ws = need_ws()
-    rep = run(connect(), ws, since=a.since, download=a.download, show_all=a.all,
-              out=(lambda *_: None) if a.json else print)
+    show = progress()
+    try:
+        rep = run(connect(), ws, since=a.since, download=a.download, show_all=a.all,
+                  out=(lambda *_: None) if a.json else print, progress=show)
+    finally:
+        if show:
+            sys.stderr.write("\r" + " " * 40 + "\r")
     if a.json:
         print(json.dumps(rep, ensure_ascii=False, indent=2))
 
@@ -122,13 +156,14 @@ def cmd_read(a):
         c = by_board.get(int(bid))
         if a.save and c:
             p = os.path.join(ws.folder(c), "notices", f"{bwid}.md")
+            os.makedirs(os.path.dirname(p), exist_ok=True)
             with open(p, "w", encoding="utf-8") as f:
                 f.write(text + ("\n\n" + "\n".join(files) if files else "") + "\n")
             print(f"\n(saved: {p})")
 
 
 def cmd_dl(a):
-    cl = Client(strict=False)
+    cl = connect()
     os.makedirs(a.to, exist_ok=True)
     for u in a.urls:
         dest = os.path.join(a.to, workspace.safe(filename_of(u)))
@@ -152,7 +187,10 @@ def cmd_remote(a):
         sys.exit("Claude Code is not installed: https://claude.com/claude-code")
     ws = need_ws()
     if not install.claude_code_has_server():
-        install.add_to_claude_code(*install.server_command())
+        try:
+            install.add_to_claude_code(*install.server_command())
+        except RuntimeError as e:
+            sys.exit(f"Could not connect nubzuki to Claude Code: {e}")
         print("Connected nubzuki to Claude Code.")
     install.allow_tools(ws.path)
     print(f"Starting a Remote Control session in {ws.path}\n"
@@ -176,7 +214,7 @@ def main(argv=None):
             stream.reconfigure(errors="replace")
     p = argparse.ArgumentParser(prog="nubzuki", description="Sweep KAIST KLMS for what changed and keep per-semester course folders")
     p.add_argument("--version", action="version", version=__version__)
-    sp = p.add_subparsers(dest="cmd", required=True)
+    sp = p.add_subparsers(dest="cmd")
 
     s = sp.add_parser("login", help="log in by tapping a number in the KAIST app (or paste a cookie)")
     s.add_argument("--id", help="your KAIST ID (remembered after the first login)")
@@ -184,7 +222,7 @@ def main(argv=None):
     s.set_defaults(fn=cmd_login)
 
     s = sp.add_parser("init", help="create the current semester folder (e.g. 2026F) with one folder per course")
-    s.add_argument("--root", help="where semester folders live (default: ~/KAIST)")
+    s.add_argument("--root", help="where semester folders live (default: ~/KAIST, or the last one used)")
     s.set_defaults(fn=cmd_init)
 
     s = sp.add_parser("courses", help="list enrolled courses and their board IDs")
@@ -223,10 +261,15 @@ def main(argv=None):
     s.set_defaults(fn=cmd_mcp)
 
     a = p.parse_args(argv)
+    if not a.cmd:
+        p.print_help()
+        return
     try:
         a.fn(a)
-    except (KlmsError, auth.AuthError, sso.SSOError) as e:
-        sys.exit(f"error: {e}\n(state file left untouched)")
+    except KeyboardInterrupt:
+        sys.exit(130)
+    except (KlmsError, auth.AuthError, sso.SSOError, TextError, OSError) as e:
+        sys.exit(f"error: {e}" + ("\n(state file left untouched)" if a.cmd == "sweep" else ""))
 
 
 if __name__ == "__main__":

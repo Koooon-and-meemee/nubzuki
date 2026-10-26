@@ -1,76 +1,98 @@
 """Local MCP server over stdio (newline-delimited JSON-RPC, no dependencies)."""
 import contextlib
+import datetime
 import json
 import os
+import re
 import sys
 import threading
 
 from . import __version__, auth, board, sso, workspace
-from .client import Client, KlmsError, SessionExpired, filename_of, klms_url
+from .client import Client, KlmsError, SessionExpired, klms_url
 from .discover import discover
-from .sweep import run, unique
+from .sweep import course_files, display_names, run, save_file
 from .text import TextError, file_text
 
 PROTOCOL = "2025-06-18"
 SUPPORTED = ("2024-11-05", "2025-03-26", PROTOCOL)
 MAX_TEXT = 20000
 WAIT = 25
-INSTRUCTIONS = ("nubzuki reads the user's own KAIST KLMS (Moodle) account: board posts, assignment and quiz "
-                "deadlines, course files and grades. The user may call it 넙죽이 or Nubzuki (KAIST's mascot). "
-                "Start with sweep for anything new or due; read posts and extract text from files before answering, "
-                "since dates, rooms and exam scope are often only in the body or attachments. "
-                "Answer in the user's language and list deadlines in date order.")
+# Most MCP clients give up on a tool call after 60 seconds; KLMS serves about one page a second
+SWEEP_WAIT = 45
+INSTRUCTIONS = (
+    "nubzuki reads the user's own KAIST KLMS (Moodle) account. The user may call it 넙죽이 or Nubzuki (KAIST's mascot).\n"
+    "- Anything new: sweep.\n"
+    "- What's due: sweep, then deadlines (sweep only lists changes).\n"
+    "- A course's latest notice or Q&A: posts, then read_post.\n"
+    "- Lecture notes or other course files: course_files, download, then file_text.\n"
+    "Course arguments take a code (BS.10020) or part of the name (일반생물). Map nicknames such as 일생 (일반생물학), "
+    "미적 (미적분학) or 일물 (일반물리학) with the courses list. Read post bodies and attachments before answering: "
+    "dates, rooms and exam scope often live there. Answer in the user's language, deadlines in date order.")
 
+COURSE = {"type": "string", "description": "course code like BS.10020, or part of its name like 일반생물"}
 TOOLS = [
-    {"name": "init",
-     "description": "First-time setup, and again when a new semester starts: read the current semester and enrolled "
-                    "courses from KLMS and create <root>/<semester>/<course>/{files,notices}. Existing folders are kept. "
-                    "Call this when another tool says no workspace exists. Needs a KLMS session (see login).",
-     "inputSchema": {"type": "object", "properties": {
-         "root": {"type": "string", "description": "where semester folders live (default: the last one used, or ~/KAIST)"}}}},
-    {"name": "courses",
-     "description": "List enrolled courses in the current semester workspace with course IDs, folders and "
-                    "Notices / Q&A / free board IDs.",
-     "inputSchema": {"type": "object", "properties": {}}},
     {"name": "sweep",
-     "description": "Show only what changed on KLMS since the last sweep: new board posts, assignment/quiz "
-                    "table changes, new course files and new grade rows. Saves the new state unless save=false. "
-                    "Read new posts with read_post afterwards; titles alone are rarely enough.",
+     "description": "What changed on KLMS since the last sweep: new board posts, changed rows in assignment and quiz "
+                    "tables, newly uploaded course files and new grade rows. It lists changes only; for what's due, "
+                    "call deadlines afterwards. A full sweep takes a minute or two because KLMS is slow, so if the "
+                    "result says running, call sweep again to collect it. If new_semester is set, call init.",
      "inputSchema": {"type": "object", "properties": {
          "since": {"type": "string", "description": "only posts on or after YYYY-MM-DD"},
-         "download": {"type": "boolean", "description": "download new course files into each course's files/"},
-         "save": {"type": "boolean", "description": "save state so the next sweep shows only newer changes (default true)"}}}},
+         "download": {"type": "boolean", "description": "also download new course files into each course's files/"},
+         "save": {"type": "boolean", "description": "remember this sweep so the next one shows only newer changes (default true)"}}}},
+    {"name": "deadlines",
+     "description": "Every row of each course's assignment and quiz tables as of the last sweep, with today's date. "
+                    "Use it for what's due today or this week, and filter by the dates in the rows. "
+                    "No KLMS request; call sweep first if as_of is old.",
+     "inputSchema": {"type": "object", "properties": {"course": COURSE}}},
+    {"name": "posts",
+     "description": "Latest posts on a course's board, newest first, with board and bwid for read_post. "
+                    "Use it to find a course's latest notice even when it isn't new.",
+     "inputSchema": {"type": "object", "required": ["course"], "properties": {
+         "course": COURSE,
+         "board": {"type": "string", "enum": ["notice", "qna", "free"], "description": "default notice"},
+         "limit": {"type": "integer", "description": "default 15"}}}},
     {"name": "read_post",
-     "description": "Read a board post's body and attachment URLs. Get board and bwid from sweep or courses.",
+     "description": "Read a board post's body and attachment URLs. Get board and bwid from sweep or posts.",
      "inputSchema": {"type": "object", "required": ["board", "bwid"], "properties": {
          "board": {"type": "integer"}, "bwid": {"type": "integer"},
          "save": {"type": "boolean", "description": "also save it to the course's notices/<bwid>.md"}}}},
+    {"name": "course_files",
+     "description": "Files on a course's KLMS page, newest uploads first, with download URLs. saved shows where a "
+                    "file was already downloaded. For lecture notes: course_files, download, then file_text.",
+     "inputSchema": {"type": "object", "required": ["course"], "properties": {"course": COURSE}}},
     {"name": "download",
-     "description": "Download KLMS attachment URLs (pluginfile.php links) into a course's files/ folder.",
+     "description": "Download KLMS file URLs (from course_files, sweep or read_post attachments) into the course's "
+                    "files/ folder. Files downloaded before are not fetched again. Returns paths for file_text.",
      "inputSchema": {"type": "object", "required": ["urls", "course"], "properties": {
-         "urls": {"type": "array", "items": {"type": "string"}},
-         "course": {"type": "string", "description": "course code or folder, e.g. CS.10001"}}}},
+         "urls": {"type": "array", "items": {"type": "string"}}, "course": COURSE}}},
     {"name": "file_text",
-     "description": "Extract text from a PDF, PPTX (with speaker notes), TXT or MD file inside the workspace. "
-                    "Paths are relative to the semester folder, e.g. CS.10001/files/week9.pdf.",
+     "description": "Text of a PDF (with [page N] markers), PPTX (with speaker notes), DOCX, TXT or MD file in the "
+                    "semester folder. Paths are relative to it, as download and list_files return them.",
      "inputSchema": {"type": "object", "required": ["path"], "properties": {
          "path": {"type": "string"},
          "offset": {"type": "integer", "description": f"character offset for long files ({MAX_TEXT} per call)"}}}},
     {"name": "list_files",
-     "description": "List files already saved in the workspace (course files/ and notices/ folders).",
+     "description": "Files already saved on this computer, per course (files/ and notices/).",
+     "inputSchema": {"type": "object", "properties": {"course": COURSE}}},
+    {"name": "courses",
+     "description": "Enrolled courses this semester: code, section, name, KLMS id, folder and board ids.",
+     "inputSchema": {"type": "object", "properties": {}}},
+    {"name": "init",
+     "description": "Set up the semester KLMS shows now (<root>/<semester>/<course>/). Other tools do this by "
+                    "themselves the first time; call it when sweep reports new_semester. Existing folders are kept.",
      "inputSchema": {"type": "object", "properties": {
-         "course": {"type": "string", "description": "limit to one course code or folder"}}}},
+         "root": {"type": "string", "description": "where semester folders live (default: the last one used, or ~/KAIST)"}}}},
     {"name": "login",
      "description": "Send a KAIST easy-login request to the user's phone and return the number to tap in the KAIST app. "
-                    "Call it when another tool reports no session or an expired session. On first use, ask the user for "
-                    "their KAIST ID (SSO login ID, not student number) and pass it as id; it is remembered afterwards. "
-                    "Never call it twice in a row without the user asking: each call pushes a notification to their phone. "
-                    "Show the user the number prominently, then call login_status.",
+                    "Call it when another tool reports no live session. On first use, ask the user for their KAIST ID "
+                    "(SSO login ID, not student number) and pass it as id; it is remembered afterwards. If the session "
+                    "is still valid, nothing is sent. Show the user the number prominently, then call login_status.",
      "inputSchema": {"type": "object", "properties": {
          "id": {"type": "string", "description": "KAIST ID (defaults to the remembered one)"}}}},
     {"name": "login_status",
      "description": f"Wait up to {WAIT} seconds for the phone login started by login. If it is still waiting, "
-                    "call it again (the request lasts 3 minutes). After logged_in, retry what failed, or call init on first use.",
+                    "call it again (the request lasts 3 minutes). After logged_in, retry what failed.",
      "inputSchema": {"type": "object", "properties": {}}},
 ]
 
@@ -83,15 +105,23 @@ class MethodNotFound(Exception):
     pass
 
 
+def _ctx(url):
+    m = re.search(r"pluginfile\.php/(\d+)/", url)
+    return int(m.group(1)) if m else 0
+
+
 class Server:
     def __init__(self):
         self.client = None
         self.login_job = None
+        self.sweep_job = None
 
     def ws(self):
+        """The semester folder, set up on first use so nobody has to call init."""
         ws = workspace.find()
         if not ws:
-            raise ToolError("No workspace yet. Call the init tool to create it (first-time setup).")
+            self.t_init({})
+            ws = workspace.find()
         return ws
 
     def connect(self, fresh=False):
@@ -114,11 +144,13 @@ class Server:
         except SessionExpired:
             return fn(self.connect(fresh=True))
 
-    def course(self, ws, key):
-        for c in ws.courses:
-            if key.upper() in (c["code"].upper(), c["folder"].upper()) or key == str(c["id"]):
-                return c
-        raise ToolError(f"Unknown course {key!r}. Use the courses tool for valid codes.")
+    def courses_for(self, ws, key):
+        """Every section of the course the key names (a code can cover a lecture and a recitation)."""
+        hits = ws.match(key)
+        if hits and len({c["code"] for c in hits}) == 1:
+            return hits
+        options = "; ".join(f"{c['code']} {c['name']}" for c in (hits or ws.courses))
+        raise ToolError(f"{'Several' if hits else 'No'} courses match {key!r}. Use one of: {options}")
 
     def inside(self, ws, path):
         p = os.path.realpath(os.path.join(ws.path, os.path.expanduser(path)))
@@ -134,20 +166,73 @@ class Server:
         ws, created = workspace.init(root, sem, courses)
         return {"semester": sem, "path": ws.path, "new_folders": created,
                 "courses": [{"code": c["code"], "section": c["section"], "name": c["name"], "folder": c["folder"]}
-                            for c in courses],
-                "next": "Call sweep. The first sweep saves a baseline and returns posts from the last 7 days."}
+                            for c in courses]}
 
     def t_courses(self, a):
         ws = self.ws()
         return {"semester": ws.info.get("semester"), "path": ws.path, "courses": ws.courses}
 
     def t_sweep(self, a):
+        job = self.sweep_job
+        if not job:
+            ws = self.ws()
+            first = not ws.load_state()
+            job = {"done": threading.Event(), "progress": "starting", "result": None, "error": None}
+
+            def work():
+                try:
+                    rep = self.with_client(lambda cl: run(
+                        cl, ws, since=a.get("since"), download=bool(a.get("download")), save=a.get("save", True),
+                        out=lambda *_: None, progress=lambda s: job.update(progress=s)))
+                    rep["first_run"] = first
+                    job["result"] = rep
+                except Exception as e:
+                    job["error"] = e
+                job["done"].set()
+
+            self.sweep_job = job
+            threading.Thread(target=work, daemon=True).start()
+        if not job["done"].wait(SWEEP_WAIT):
+            return {"status": "running", "progress": job["progress"],
+                    "message": "KLMS serves about one page a second, so this takes a minute or two. "
+                               "Call sweep again to get the result."}
+        self.sweep_job = None
+        if job["error"]:
+            raise job["error"]
+        return job["result"]
+
+    def t_deadlines(self, a):
         ws = self.ws()
-        first = not ws.load_state()
-        rep = self.with_client(lambda cl: run(cl, ws, since=a.get("since"), download=bool(a.get("download")),
-                                              save=a.get("save", True), out=lambda *_: None))
-        rep["first_run"] = first
-        return rep
+        state = ws.load_state()
+        if not state:
+            rep = self.t_sweep({})
+            if rep.get("status") == "running":
+                return rep
+            state = ws.load_state()
+        today = datetime.date.today()
+        out = []
+        for c in (self.courses_for(ws, a["course"]) if a.get("course") else ws.courses):
+            rows = {m: state.get(f"{m}:{c['id']}") or [] for m in ("assign", "quiz")}
+            if any(rows.values()):
+                out.append({"course": c["code"], "section": c["section"], "name": c["name"], **rows})
+        return {"today": f"{today.isoformat()} ({today.strftime('%A')})", "as_of": ws.state_time(), "courses": out}
+
+    def t_posts(self, a):
+        ws = self.ws()
+        kind = a.get("board") or "notice"
+        limit = int(a.get("limit") or 15)
+        courses = self.courses_for(ws, a["course"])
+        out = []
+        for c in courses:
+            bid = c.get("boards", {}).get(kind)
+            if bid:
+                rows = self.with_client(lambda cl: board.posts(cl, bid))
+                out.append({"course": c["code"], "section": c["section"], "name": c["name"],
+                            "board": bid, "posts": rows[:limit]})
+        if not out:
+            have = sorted({k for c in courses for k in c.get("boards", {})})
+            raise ToolError(f"{courses[0]['code']} has no {kind} board. Boards it has: {', '.join(have) or 'none'}.")
+        return {"kind": kind, "boards": out}
 
     def t_read_post(self, a):
         bid, bwid = int(a["board"]), int(a["bwid"])
@@ -164,25 +249,26 @@ class Server:
                 out["saved"] = os.path.relpath(p, ws.path)
         return out
 
+    def t_course_files(self, a):
+        ws = self.ws()
+        courses = self.courses_for(ws, a["course"])
+        urls = []
+        for c in courses:
+            urls += self.with_client(lambda cl: course_files(cl, c["id"]))
+        urls.sort(key=_ctx, reverse=True)
+        files = [{"name": n, "url": u, "saved": ws.saved_path(u)} for u, n in zip(urls, display_names(urls))]
+        return {"course": courses[0]["code"], "name": courses[0]["name"], "files": files}
+
     def t_download(self, a):
         ws = self.ws()
-        c = self.course(ws, a["course"])
-        d = os.path.join(ws.folder(c), "files")
-        os.makedirs(d, exist_ok=True)
-        urls = a["urls"]
+        course = self.courses_for(ws, a["course"])[0]
+        urls = [a["urls"]] if isinstance(a["urls"], str) else list(a["urls"])
         for u in urls:
-            if "/pluginfile.php/" not in u:
+            if "pluginfile.php/" not in u:
                 raise ToolError(f"Not a KLMS file URL: {u}")
             klms_url(u)
-
-        def fetch(cl):
-            saved = []
-            for u in urls:
-                dest = unique(os.path.join(d, workspace.safe(filename_of(u))))
-                cl.download(u, dest)
-                saved.append({"path": os.path.relpath(dest, ws.path), "bytes": os.path.getsize(dest)})
-            return saved
-        return {"saved": self.with_client(fetch)}
+        paths = self.with_client(lambda cl: [save_file(cl, ws, course, u) for u in urls])
+        return {"saved": [{"path": os.path.relpath(p, ws.path), "bytes": os.path.getsize(p)} for p in paths]}
 
     def t_file_text(self, a):
         ws = self.ws()
@@ -192,31 +278,37 @@ class Server:
         except (TextError, OSError) as e:
             raise ToolError(str(e))
         off = max(0, int(a.get("offset") or 0))
-        chunk = text[off:off + MAX_TEXT]
-        out = {"path": os.path.relpath(p, ws.path), "length": len(text), "text": chunk}
+        out = {"path": os.path.relpath(p, ws.path), "length": len(text), "text": text[off:off + MAX_TEXT]}
         if off + MAX_TEXT < len(text):
             out["next_offset"] = off + MAX_TEXT
         return out
 
     def t_list_files(self, a):
         ws = self.ws()
-        courses = [self.course(ws, a["course"])] if a.get("course") else ws.courses
         out = {}
-        for c in courses:
+        for c in (self.courses_for(ws, a["course"]) if a.get("course") else ws.courses):
             names = []
             for sub in workspace.SUBDIRS:
                 d = os.path.join(ws.folder(c), sub)
                 if os.path.isdir(d):
-                    names += sorted(f"{c['folder']}/{sub}/{n}" for n in os.listdir(d) if not n.startswith("."))
+                    names += sorted(f"{c['folder']}/{sub}/{n}" for n in os.listdir(d)
+                                    if not n.startswith(".") and not n.endswith(".part"))
             out[c["code"]] = names
         return out
 
     def t_login(self, a):
         if self.login_job and self.login_job["thread"].is_alive():
             return {"status": "waiting", "number": self.login_job["number"]}
-        kid = a.get("id") or workspace.load_config().get("kaist_id")
+        remembered = workspace.load_config().get("kaist_id")
+        kid = a.get("id") or remembered
         if not kid:
             raise ToolError("No KAIST ID remembered. Ask the user for their KAIST ID and call login with id.")
+        if kid == remembered:
+            try:
+                self.connect(fresh=True)
+                return {"status": "logged_in", "message": "The KLMS session is still valid, so nothing was sent."}
+            except SessionExpired:
+                pass
         job = {"number": None, "error": None, "shown": threading.Event()}
 
         def work():
@@ -251,10 +343,7 @@ class Server:
             return {"status": "waiting", "number": job["number"], "message": "Not approved yet. Call login_status again."}
         if job["error"]:
             raise ToolError(job["error"])
-        out = {"status": "logged_in"}
-        if not workspace.find():
-            out["next"] = "First-time setup: call init."
-        return out
+        return {"status": "logged_in", "next": "Retry what you were doing."}
 
     # protocol
 
