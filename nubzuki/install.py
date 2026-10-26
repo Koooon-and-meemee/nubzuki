@@ -1,6 +1,7 @@
-"""Register `nubzuki mcp` with Claude Code, the Claude app and Cursor."""
+"""Register `nubzuki mcp` with Claude Code, the Claude app, Codex, Gemini CLI and Cursor."""
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -29,6 +30,43 @@ def cursor_config():
     return os.path.join(os.path.expanduser("~"), ".cursor", "mcp.json")
 
 
+def codex_config():
+    home = os.environ.get("CODEX_HOME") or os.path.join(os.path.expanduser("~"), ".codex")
+    return os.path.join(home, "config.toml")
+
+
+def gemini_config():
+    return os.path.join(os.path.expanduser("~"), ".gemini", "settings.json")
+
+
+def _backup_and_write(path, text):
+    if os.path.exists(path):
+        shutil.copy2(path, path + ".bak")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(text)
+
+
+def add_to_toml(path, cmd, args):
+    """Add or replace [mcp_servers.nubzuki] in Codex's config.toml, leaving the rest of the file as is."""
+    text = ""
+    if os.path.exists(path):
+        with open(path, encoding="utf-8") as f:
+            text = f.read()
+    # JSON string and array syntax is valid TOML for plain strings
+    block = f"[mcp_servers.{NAME}]\ncommand = {json.dumps(cmd)}\nargs = {json.dumps(args)}\n"
+    m = re.search(rf"(?ms)^\[mcp_servers\.{NAME}\]\s*\n.*?(?=^\[|\Z)", text)
+    if m and m.group(0).strip() == block.strip():
+        return "same"
+    if m:
+        rest = text[m.end():]
+        text, status = text[:m.start()] + block + ("\n" if rest else "") + rest, "updated"
+    else:
+        sep = "" if not text else ("\n" if text.endswith("\n") else "\n\n")
+        text, status = text + sep + block, "added"
+    _backup_and_write(path, text)
+    return status
+
+
 def add_to_json(path, cmd, args):
     """Add the server to an mcpServers JSON file, keeping everything else. Returns 'added', 'updated' or 'same'."""
     cfg = {}
@@ -42,10 +80,7 @@ def add_to_json(path, cmd, args):
         return "same"
     status = "updated" if NAME in servers else "added"
     servers[NAME] = entry
-    if os.path.exists(path):
-        shutil.copy2(path, path + ".bak")
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(cfg, f, ensure_ascii=False, indent=2)
+    _backup_and_write(path, json.dumps(cfg, ensure_ascii=False, indent=2) + "\n")
     return status
 
 
@@ -100,9 +135,11 @@ def install(targets=None, out=print):
             elif targets:
                 out("  - Claude Code: `claude` command not found.")
 
-    for key, label, path, hint in (
-            ("claude-app", "Claude app", desktop_config(), "Quit the Claude app completely (⌘Q / Exit) and reopen it."),
-            ("cursor", "Cursor", cursor_config(), "Restart Cursor.")):
+    for key, label, path, write, hint in (
+            ("claude-app", "Claude app", desktop_config(), add_to_json, "Quit the Claude app completely (⌘Q / Exit) and reopen it."),
+            ("codex", "Codex", codex_config(), add_to_toml, "Restart the Codex app, or start a new `codex` session."),
+            ("gemini", "Gemini CLI", gemini_config(), add_to_json, "Start a new `gemini` session."),
+            ("cursor", "Cursor", cursor_config(), add_to_json, "Restart Cursor.")):
         if not want(key):
             continue
         if not os.path.isdir(os.path.dirname(path)):
@@ -110,7 +147,7 @@ def install(targets=None, out=print):
                 out(f"  - {label}: not installed ({os.path.dirname(path)} not found).")
             continue
         try:
-            st = add_to_json(path, cmd, args)
+            st = write(path, cmd, args)
         except (OSError, ValueError) as e:
             out(f"  ✗ {label}: could not update {path}: {e}")
             continue

@@ -259,6 +259,27 @@ class Install(unittest.TestCase):
             self.assertTrue(os.path.exists(p + ".bak"))
             self.assertEqual(install.add_to_json(p, "/bin/nubzuki", ["mcp"]), "same")
 
+    def test_codex_toml(self):
+        from nubzuki import install
+        with tempfile.TemporaryDirectory() as td:
+            p = os.path.join(td, "config.toml")
+            head = 'model = "gpt-5"\n\n[mcp_servers.other]\ncommand = "o"\n\n[mcp_servers.other.env]\nK = "v"\n'
+            with open(p, "w", encoding="utf-8") as f:
+                f.write(head)
+            self.assertEqual(install.add_to_toml(p, "/bin/nubzuki", ["mcp"]), "added")
+            self.assertEqual(install.add_to_toml(p, "/bin/nubzuki", ["mcp"]), "same")
+            self.assertEqual(install.add_to_toml(p, "C:\\nb\\nubzuki.exe", ["mcp"]), "updated")
+            with open(p, encoding="utf-8") as f:
+                text = f.read()
+            self.assertTrue(text.startswith(head))
+            self.assertEqual(text.count("[mcp_servers.nubzuki]"), 1)
+            self.assertIn('command = "C:\\\\nb\\\\nubzuki.exe"', text)
+            if sys.version_info >= (3, 11):
+                import tomllib
+                cfg = tomllib.loads(text)
+                self.assertEqual(cfg["mcp_servers"]["nubzuki"], {"command": "C:\\nb\\nubzuki.exe", "args": ["mcp"]})
+                self.assertEqual(cfg["mcp_servers"]["other"]["env"], {"K": "v"})
+
     def test_allow_tools_once(self):
         from nubzuki import install
         with tempfile.TemporaryDirectory() as td:
