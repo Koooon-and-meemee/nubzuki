@@ -157,6 +157,33 @@ class Mcp(unittest.TestCase):
             self.assertTrue(mcp.Server().inside(ws, "CS/files/a.pdf").startswith(os.path.realpath(td)))
 
 
+    def test_first_login_remembers_id(self):
+        from nubzuki import mcp
+
+        def fake_login(kid, on_number):
+            on_number("47")
+            return "MoodleSession=x"
+        with tempfile.TemporaryDirectory() as td, \
+                mock.patch.object(workspace, "CONFIG_FILE", os.path.join(td, "cfg.json")), \
+                mock.patch.object(workspace, "CONFIG_DIR", td), \
+                mock.patch.object(auth, "save_cookie") as save, \
+                mock.patch.object(sso, "login", fake_login), \
+                mock.patch.object(workspace, "find", return_value=None):
+            srv = mcp.Server()
+            with self.assertRaises(mcp.ToolError) as e:
+                srv.call("login", {})
+            self.assertIn("KAIST ID", str(e.exception))
+            self.assertEqual(srv.call("login", {"id": "student"})["number"], "47")
+            st = srv.call("login_status", {})
+            self.assertEqual(st["status"], "logged_in")
+            self.assertIn("init", st["next"])
+            save.assert_called_once_with("MoodleSession=x")
+            self.assertEqual(workspace.load_config()["kaist_id"], "student")
+            with self.assertRaises(mcp.ToolError) as e:
+                srv.call("courses", {})
+            self.assertIn("init", str(e.exception))
+
+
 class Install(unittest.TestCase):
     def test_merges_and_backs_up(self):
         from nubzuki import install

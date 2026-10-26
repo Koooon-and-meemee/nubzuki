@@ -7,13 +7,21 @@ import threading
 
 from . import __version__, auth, board, sso, workspace
 from .client import Client, KlmsError, SessionExpired, filename_of
+from .discover import discover
 from .sweep import run, unique
 from .text import TextError, file_text
 
 PROTOCOL = "2025-06-18"
 MAX_TEXT = 50000
+WAIT = 25
 
 TOOLS = [
+    {"name": "init",
+     "description": "First-time setup, and again when a new semester starts: read the current semester and enrolled "
+                    "courses from KLMS and create <root>/<semester>/<course>/{files,notices}. Existing folders are kept. "
+                    "Call this when another tool says no workspace exists. Needs a KLMS session (see login).",
+     "inputSchema": {"type": "object", "properties": {
+         "root": {"type": "string", "description": "where semester folders live (default: the last one used, or ~/KAIST)"}}}},
     {"name": "courses",
      "description": "List enrolled courses in the current semester workspace with course IDs, folders and "
                     "Notices / Q&A / free board IDs.",
@@ -47,14 +55,16 @@ TOOLS = [
      "inputSchema": {"type": "object", "properties": {
          "course": {"type": "string", "description": "limit to one course code or folder"}}}},
     {"name": "login",
-     "description": "Send a KAIST easy-login request to the user's phone and return the number to tap. "
-                    "Only call this when another tool reports an expired session, and never twice in a row "
-                    "without the user asking: each call pushes a notification to their phone. "
-                    "Tell the user the number, then call login_status.",
+     "description": "Send a KAIST easy-login request to the user's phone and return the number to tap in the KAIST app. "
+                    "Call it when another tool reports no session or an expired session. On first use, ask the user for "
+                    "their KAIST ID (SSO login ID, not student number) and pass it as id; it is remembered afterwards. "
+                    "Never call it twice in a row without the user asking: each call pushes a notification to their phone. "
+                    "Show the user the number prominently, then call login_status.",
      "inputSchema": {"type": "object", "properties": {
          "id": {"type": "string", "description": "KAIST ID (defaults to the remembered one)"}}}},
     {"name": "login_status",
-     "description": "Wait up to 60 seconds for the phone login started by login to finish and report the result.",
+     "description": f"Wait up to {WAIT} seconds for the phone login started by login. If it is still waiting, "
+                    "call it again (the request lasts 3 minutes). After logged_in, retry what failed, or call init on first use.",
      "inputSchema": {"type": "object", "properties": {}}},
 ]
 
@@ -71,7 +81,7 @@ class Server:
     def ws(self):
         ws = workspace.find()
         if not ws:
-            raise ToolError("No workspace found. Ask the user to run `nubzuki init` once.")
+            raise ToolError("No workspace yet. Call the init tool to create it (first-time setup).")
         return ws
 
     def connect(self, fresh=False):
@@ -107,6 +117,15 @@ class Server:
         return p
 
     # tools
+
+    def t_init(self, a):
+        root = a.get("root") or workspace.load_config().get("root") or os.path.join(os.path.expanduser("~"), "KAIST")
+        sem, courses = self.with_client(discover)
+        ws, created = workspace.init(root, sem, courses)
+        return {"semester": sem, "path": ws.path, "new_folders": created,
+                "courses": [{"code": c["code"], "section": c["section"], "name": c["name"], "folder": c["folder"]}
+                            for c in courses],
+                "next": "Call sweep. The first sweep saves a baseline and returns posts from the last 7 days."}
 
     def t_courses(self, a):
         ws = self.ws()
@@ -181,8 +200,8 @@ class Server:
             return {"status": "waiting", "number": self.login_job["number"]}
         kid = a.get("id") or workspace.load_config().get("kaist_id")
         if not kid:
-            raise ToolError("No KAIST ID remembered. Pass id, or ask the user to run `nubzuki login` once.")
-        job = {"number": None, "cookie": None, "error": None, "shown": threading.Event()}
+            raise ToolError("No KAIST ID remembered. Ask the user for their KAIST ID and call login with id.")
+        job = {"id": kid, "number": None, "cookie": None, "error": None, "shown": threading.Event()}
 
         def work():
             try:
@@ -194,7 +213,7 @@ class Server:
         job["thread"] = threading.Thread(target=work, daemon=True)
         self.login_job = job
         job["thread"].start()
-        job["shown"].wait(60)
+        job["shown"].wait(WAIT)
         if job["error"]:
             raise ToolError(job["error"])
         return {"status": "waiting", "number": job["number"],
@@ -205,18 +224,23 @@ class Server:
         job = self.login_job
         if not job:
             raise ToolError("No login in progress. Call login first.")
-        job["thread"].join(60)
+        job["thread"].join(WAIT)
         if job["thread"].is_alive():
-            return {"status": "waiting", "number": job["number"]}
+            return {"status": "waiting", "number": job["number"], "message": "Not approved yet. Call login_status again."}
         if job["error"]:
             raise ToolError(job["error"])
         if job["cookie"]:
             auth.save_cookie(job["cookie"])
             cfg = workspace.load_config()
+            if cfg.get("kaist_id") != job["id"]:
+                cfg["kaist_id"] = job["id"]
+                workspace.save_config(cfg)
             self.client = Client(cookie=job["cookie"])
             job["cookie"] = None
-            return {"status": "logged_in", "kaist_id": cfg.get("kaist_id")}
-        return {"status": "logged_in"}
+        out = {"status": "logged_in"}
+        if not workspace.find():
+            out["next"] = "First-time setup: call init."
+        return out
 
     # protocol
 
@@ -228,8 +252,10 @@ class Server:
             with contextlib.redirect_stdout(sys.stderr):
                 return fn(args or {})
         except SessionExpired:
-            raise ToolError("KLMS session expired. Ask the user whether to send a login request to their phone "
-                            "(login tool), or have them run `nubzuki login` in a terminal.")
+            kid = workspace.load_config().get("kaist_id")
+            raise ToolError("No live KLMS session. " + (
+                "Tell the user a login request will go to their phone, then call login." if kid else
+                "First-time login: ask the user for their KAIST ID, then call login with id."))
         except (KlmsError, auth.AuthError, sso.SSOError) as e:
             raise ToolError(str(e))
 

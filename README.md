@@ -81,7 +81,7 @@ Then ask the app "anything new on KLMS?". The app starts and stops the server by
 It keeps your other settings, saves a `.bak` copy before changing a config file, and writes the full path to `nubzuki`,
 so the Claude app finds it even though it doesn't read your shell's PATH. Use `--only claude-app` (or `claude-code`, `cursor`) to pick apps.
 
-Tools: `courses`, `sweep`, `read_post`, `download`, `list_files`, `file_text`, `login`, `login_status`.
+Tools: `init`, `courses`, `sweep`, `read_post`, `download`, `list_files`, `file_text`, `login`, `login_status`.
 The server runs only on your machine and talks only to KLMS and KAIST SSO. Downloads and `file_text` stay inside the semester folder.
 When the session expires, the agent can call `login`, which sends a request to your phone and shows the number to tap in the chat.
 
