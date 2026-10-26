@@ -33,6 +33,8 @@ The `nubzuki` CLI must be installed. If it is missing, suggest `pipx install git
 
 ## Reference
 
+- If the nubzuki MCP tools (`sweep`, `read_post`, `file_text`, ...) are available, prefer them over the CLI. To set them up, suggest `! nubzuki mcp install`.
+
 - `nubzuki courses` lists course IDs and the Notices / Q&A / free board IDs.
 - `nubzuki sweep --json` gives machine-readable output.
 - Some courses announce things only verbally in class. "Not on KLMS" does not mean "doesn't exist".

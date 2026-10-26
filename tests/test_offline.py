@@ -157,6 +157,29 @@ class Mcp(unittest.TestCase):
             self.assertTrue(mcp.Server().inside(ws, "CS/files/a.pdf").startswith(os.path.realpath(td)))
 
 
+class Install(unittest.TestCase):
+    def test_merges_and_backs_up(self):
+        from nubzuki import install
+        with tempfile.TemporaryDirectory() as td:
+            p = os.path.join(td, "cfg.json")
+            with open(p, "w", encoding="utf-8") as f:
+                json.dump({"preferences": {"x": 1}, "mcpServers": {"other": {"command": "o"}}}, f)
+            self.assertEqual(install.add_to_json(p, "/bin/nubzuki", ["mcp"]), "added")
+            with open(p, encoding="utf-8") as f:
+                cfg = json.load(f)
+            self.assertEqual(cfg["preferences"], {"x": 1})
+            self.assertEqual(set(cfg["mcpServers"]), {"other", "nubzuki"})
+            self.assertTrue(os.path.exists(p + ".bak"))
+            self.assertEqual(install.add_to_json(p, "/bin/nubzuki", ["mcp"]), "same")
+
+    def test_new_file(self):
+        from nubzuki import install
+        with tempfile.TemporaryDirectory() as td:
+            p = os.path.join(td, "mcp.json")
+            self.assertEqual(install.add_to_json(p, "nb", ["mcp"]), "added")
+            self.assertFalse(os.path.exists(p + ".bak"))
+
+
 class Cli(unittest.TestCase):
     def test_help(self):
         r = subprocess.run([sys.executable, "-m", "nubzuki", "--help"], capture_output=True, encoding="utf-8")

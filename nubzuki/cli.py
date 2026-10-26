@@ -144,6 +144,10 @@ def cmd_text(a):
 
 
 def cmd_mcp(a):
+    if a.action == "install":
+        from .install import install
+        install(a.only)
+        return
     from .mcp import serve
     serve()
 
@@ -190,7 +194,10 @@ def main(argv=None):
     s.add_argument("file")
     s.set_defaults(fn=cmd_text)
 
-    s = sp.add_parser("mcp", help="run a local MCP server over stdio for AI agents")
+    s = sp.add_parser("mcp", help="run the local MCP server, or `mcp install` to add it to Claude Code, the Claude app and Cursor")
+    s.add_argument("action", nargs="?", choices=("serve", "install"), default="serve")
+    s.add_argument("--only", nargs="+", choices=("claude-code", "claude-app", "cursor"),
+                   help="with install: only these apps (default: every one found)")
     s.set_defaults(fn=cmd_mcp)
 
     a = p.parse_args(argv)

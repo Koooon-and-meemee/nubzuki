@@ -48,6 +48,7 @@ pipx install git+https://github.com/Koooon-and-meemee/nubzuki
 nubzuki login --id <your KAIST ID>   # tap the number shown, in the KAIST app
 nubzuki init                         # creates ~/KAIST/2026F/<course>/{files,notices}
 nubzuki sweep                        # what changed since last time
+nubzuki mcp install                  # optional: connect the Claude app / Claude Code / Cursor
 ```
 
 The first `sweep` saves a baseline and prints a summary plus posts from the last 7 days (`--all` prints everything).
@@ -64,19 +65,28 @@ curl -fsSL https://raw.githubusercontent.com/Koooon-and-meemee/nubzuki/main/skil
   -o ~/.claude/skills/nubzuki/SKILL.md
 ```
 
-**MCP** (Claude Desktop, Claude Code, Cursor and other MCP clients): `nubzuki mcp` runs a local stdio server
-with the tools `courses`, `sweep`, `read_post`, `download`, `list_files`, `file_text`, `login` and `login_status`.
+**Claude app, Claude Code, Cursor (MCP)**: one command connects nubzuki to every one of these apps it finds.
 
 ```sh
-claude mcp add nubzuki -- nubzuki mcp
+nubzuki mcp install
 ```
 
-```json
-{ "mcpServers": { "nubzuki": { "command": "nubzuki", "args": ["mcp"] } } }
+```
+  ✓ Claude Code: registered for all projects. Start a new `claude` session to use it.
+  ✓ Claude app: added in ~/Library/Application Support/Claude/claude_desktop_config.json (backup: .bak)
+      Quit the Claude app completely (⌘Q / Exit) and reopen it.
 ```
 
-It runs only on your machine and talks only to KLMS and KAIST SSO. Downloads and `file_text` stay inside the semester folder.
-`login` sends a request to your phone and returns the number to tap; it is never sent without the agent calling it.
+Then ask the app "anything new on KLMS?". The app starts and stops the server by itself; there is nothing to keep running.
+It keeps your other settings, saves a `.bak` copy before changing a config file, and writes the full path to `nubzuki`,
+so the Claude app finds it even though it doesn't read your shell's PATH. Use `--only claude-app` (or `claude-code`, `cursor`) to pick apps.
+
+Tools: `courses`, `sweep`, `read_post`, `download`, `list_files`, `file_text`, `login`, `login_status`.
+The server runs only on your machine and talks only to KLMS and KAIST SSO. Downloads and `file_text` stay inside the semester folder.
+When the session expires, the agent can call `login`, which sends a request to your phone and shows the number to tap in the chat.
+
+Other MCP clients: run `nubzuki mcp` over stdio, e.g.
+`{ "mcpServers": { "nubzuki": { "command": "/full/path/to/nubzuki", "args": ["mcp"] } } }` (`which nubzuki` prints the path).
 
 **Any other agent** (Cursor, Codex, Gemini CLI, scripts): every command prints plain text, and `sweep --json`
 returns structured results. Course files land in `<course>/files/`, and `nubzuki text` turns PDF and PPTX into text,
@@ -152,7 +162,8 @@ nubzuki read <board> <bwid> [<board> <bwid> ...]   # post body + attachment link
 nubzuki read <board> <bwid> --save                 # save to <course>/notices/<bwid>.md
 nubzuki dl <url> [...] --to CS.10001/files         # download attachments
 nubzuki text lecture.pdf                           # PDF, PPTX (with speaker notes), TXT, MD
-nubzuki mcp                                        # local MCP server over stdio
+nubzuki mcp install [--only claude-app ...]        # add the MCP server to Claude Code, the Claude app, Cursor
+nubzuki mcp                                        # run the MCP server over stdio (apps do this for you)
 ```
 
 `nubzuki text` needs `pdftotext` for PDFs (`brew install poppler` or `apt install poppler-utils`).
