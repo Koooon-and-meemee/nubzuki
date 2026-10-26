@@ -6,7 +6,7 @@ import urllib.parse
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 
-from . import board
+from . import board, workspace
 from .client import filename_of
 from .text import table_rows
 
@@ -133,7 +133,7 @@ def run(client, ws, since=None, download=False, show_all=False, save=True, out=p
             for f in newf:
                 name = names[f]
                 if download:
-                    dest = unique(os.path.join(ws.folder(c), "files", filename_of(f)))
+                    dest = unique(os.path.join(ws.folder(c), "files", workspace.safe(filename_of(f))))
                     client.download(f, dest)
                     lines.append(f"{name}  → {os.path.relpath(dest, ws.path)}")
                 else:

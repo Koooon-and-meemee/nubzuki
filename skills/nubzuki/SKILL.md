@@ -34,6 +34,7 @@ The `nubzuki` CLI must be installed. If it is missing, suggest `pipx install git
 ## Reference
 
 - If the nubzuki MCP tools (`sweep`, `read_post`, `file_text`, ...) are available, prefer them over the CLI. To set them up, suggest `! nubzuki mcp install`.
+- To use KLMS from their phone, suggest `nubzuki remote` (Claude Code Remote Control in the semester folder).
 
 - `nubzuki courses` lists course IDs and the Notices / Q&A / free board IDs.
 - `nubzuki sweep --json` gives machine-readable output.

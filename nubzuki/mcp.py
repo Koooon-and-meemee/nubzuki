@@ -6,14 +6,20 @@ import sys
 import threading
 
 from . import __version__, auth, board, sso, workspace
-from .client import Client, KlmsError, SessionExpired, filename_of
+from .client import Client, KlmsError, SessionExpired, filename_of, klms_url
 from .discover import discover
 from .sweep import run, unique
 from .text import TextError, file_text
 
 PROTOCOL = "2025-06-18"
-MAX_TEXT = 50000
+SUPPORTED = ("2024-11-05", "2025-03-26", PROTOCOL)
+MAX_TEXT = 20000
 WAIT = 25
+INSTRUCTIONS = ("nubzuki reads the user's own KAIST KLMS (Moodle) account: board posts, assignment and quiz "
+                "deadlines, course files and grades. The user may call it 넙죽이 or Nubzuki (KAIST's mascot). "
+                "Start with sweep for anything new or due; read posts and extract text from files before answering, "
+                "since dates, rooms and exam scope are often only in the body or attachments. "
+                "Answer in the user's language and list deadlines in date order.")
 
 TOOLS = [
     {"name": "init",
@@ -70,6 +76,10 @@ TOOLS = [
 
 
 class ToolError(Exception):
+    pass
+
+
+class MethodNotFound(Exception):
     pass
 
 
@@ -148,6 +158,7 @@ class Server:
             c = next((c for c in ws.courses if bid in c.get("boards", {}).values()), None)
             if c:
                 p = os.path.join(ws.folder(c), "notices", f"{bwid}.md")
+                os.makedirs(os.path.dirname(p), exist_ok=True)
                 with open(p, "w", encoding="utf-8") as f:
                     f.write(text + ("\n\n" + "\n".join(files) if files else "") + "\n")
                 out["saved"] = os.path.relpath(p, ws.path)
@@ -158,15 +169,20 @@ class Server:
         c = self.course(ws, a["course"])
         d = os.path.join(ws.folder(c), "files")
         os.makedirs(d, exist_ok=True)
-        cl = self.connect()
-        saved = []
-        for u in a["urls"]:
-            if "pluginfile.php" not in u:
+        urls = a["urls"]
+        for u in urls:
+            if "/pluginfile.php/" not in u:
                 raise ToolError(f"Not a KLMS file URL: {u}")
-            dest = unique(os.path.join(d, workspace.safe(filename_of(u))))
-            cl.download(u, dest)
-            saved.append({"path": os.path.relpath(dest, ws.path), "bytes": os.path.getsize(dest)})
-        return {"saved": saved}
+            klms_url(u)
+
+        def fetch(cl):
+            saved = []
+            for u in urls:
+                dest = unique(os.path.join(d, workspace.safe(filename_of(u))))
+                cl.download(u, dest)
+                saved.append({"path": os.path.relpath(dest, ws.path), "bytes": os.path.getsize(dest)})
+            return saved
+        return {"saved": self.with_client(fetch)}
 
     def t_file_text(self, a):
         ws = self.ws()
@@ -175,7 +191,7 @@ class Server:
             text = file_text(p)
         except (TextError, OSError) as e:
             raise ToolError(str(e))
-        off = int(a.get("offset") or 0)
+        off = max(0, int(a.get("offset") or 0))
         chunk = text[off:off + MAX_TEXT]
         out = {"path": os.path.relpath(p, ws.path), "length": len(text), "text": chunk}
         if off + MAX_TEXT < len(text):
@@ -201,11 +217,17 @@ class Server:
         kid = a.get("id") or workspace.load_config().get("kaist_id")
         if not kid:
             raise ToolError("No KAIST ID remembered. Ask the user for their KAIST ID and call login with id.")
-        job = {"id": kid, "number": None, "cookie": None, "error": None, "shown": threading.Event()}
+        job = {"number": None, "error": None, "shown": threading.Event()}
 
         def work():
             try:
-                job["cookie"] = sso.login(kid, on_number=lambda n: (job.update(number=n), job["shown"].set()))
+                cookie = sso.login(kid, on_number=lambda n: (job.update(number=n), job["shown"].set()))
+                auth.save_cookie(cookie)
+                cfg = workspace.load_config()
+                if cfg.get("kaist_id") != kid:
+                    cfg["kaist_id"] = kid
+                    workspace.save_config(cfg)
+                self.client = Client(cookie=cookie)
             except Exception as e:
                 job["error"] = str(e)
             job["shown"].set()
@@ -229,14 +251,6 @@ class Server:
             return {"status": "waiting", "number": job["number"], "message": "Not approved yet. Call login_status again."}
         if job["error"]:
             raise ToolError(job["error"])
-        if job["cookie"]:
-            auth.save_cookie(job["cookie"])
-            cfg = workspace.load_config()
-            if cfg.get("kaist_id") != job["id"]:
-                cfg["kaist_id"] = job["id"]
-                workspace.save_config(cfg)
-            self.client = Client(cookie=job["cookie"])
-            job["cookie"] = None
         out = {"status": "logged_in"}
         if not workspace.find():
             out["next"] = "First-time setup: call init."
@@ -256,21 +270,25 @@ class Server:
             raise ToolError("No live KLMS session. " + (
                 "Tell the user a login request will go to their phone, then call login." if kid else
                 "First-time login: ask the user for their KAIST ID, then call login with id."))
-        except (KlmsError, auth.AuthError, sso.SSOError) as e:
+        except (KlmsError, auth.AuthError, sso.SSOError, OSError) as e:
             raise ToolError(str(e))
+        except KeyError as e:
+            raise ToolError(f"Missing argument: {e}")
+        except (TypeError, ValueError) as e:
+            raise ToolError(f"Invalid argument: {e}")
 
     def handle(self, msg):
         method, mid = msg.get("method"), msg.get("id")
         if method == "initialize":
-            v = msg.get("params", {}).get("protocolVersion") or PROTOCOL
-            return {"protocolVersion": v, "capabilities": {"tools": {}},
-                    "serverInfo": {"name": "nubzuki", "version": __version__}}
+            v = (msg.get("params") or {}).get("protocolVersion")
+            return {"protocolVersion": v if v in SUPPORTED else PROTOCOL, "capabilities": {"tools": {}},
+                    "serverInfo": {"name": "nubzuki", "version": __version__}, "instructions": INSTRUCTIONS}
         if method == "ping":
             return {}
         if method == "tools/list":
             return {"tools": TOOLS}
         if method == "tools/call":
-            p = msg.get("params", {})
+            p = msg.get("params") or {}
             try:
                 res = self.call(p.get("name"), p.get("arguments"))
                 return {"content": [{"type": "text", "text": json.dumps(res, ensure_ascii=False, indent=1)}]}
@@ -278,7 +296,7 @@ class Server:
                 return {"content": [{"type": "text", "text": str(e)}], "isError": True}
         if mid is None:
             return None
-        raise LookupError(method)
+        raise MethodNotFound(method)
 
 
 def send(obj):
@@ -300,10 +318,13 @@ def serve(stdin=None):
         except ValueError:
             send({"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": "Parse error"}})
             continue
+        if not isinstance(msg, dict):
+            send({"jsonrpc": "2.0", "id": None, "error": {"code": -32600, "message": "Invalid request"}})
+            continue
         mid = msg.get("id")
         try:
             res = srv.handle(msg)
-        except LookupError as e:
+        except MethodNotFound as e:
             send({"jsonrpc": "2.0", "id": mid, "error": {"code": -32601, "message": f"Method not found: {e}"}})
             continue
         except Exception as e:

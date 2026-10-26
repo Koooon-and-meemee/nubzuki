@@ -5,6 +5,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import urllib.request
 from unittest import mock
 
 from nubzuki import auth, discover, seed, sso, workspace
@@ -184,6 +185,65 @@ class Mcp(unittest.TestCase):
             self.assertIn("init", str(e.exception))
 
 
+    def test_bad_input_is_a_tool_error(self):
+        out = self.rpc({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "read_post", "arguments": {}}},
+                       [1, 2],
+                       {"jsonrpc": "2.0", "id": 2, "method": "ping"})
+        self.assertTrue(out[0]["result"]["isError"])
+        self.assertIn("Missing argument", out[0]["result"]["content"][0]["text"])
+        self.assertEqual(out[1]["error"]["code"], -32600)
+        self.assertEqual(out[2]["result"], {})
+
+    def test_download_refuses_other_hosts(self):
+        from nubzuki import mcp
+        ws = mock.Mock(courses=[{"id": 1, "code": "CS.10001", "folder": "CS.10001"}], path=tempfile.gettempdir())
+        ws.folder.return_value = tempfile.mkdtemp()
+        srv = mcp.Server()
+        srv.connect = mock.Mock()
+        with mock.patch.object(workspace, "find", return_value=ws):
+            for u in ("https://evil.example/pluginfile.php/1/x.pdf", "http://klms.kaist.ac.kr/pluginfile.php/1/x.pdf"):
+                with self.assertRaises(mcp.ToolError):
+                    srv.call("download", {"urls": [u], "course": "CS.10001"})
+        srv.connect.assert_not_called()
+
+    def test_login_saves_even_without_status_call(self):
+        from nubzuki import mcp
+        with tempfile.TemporaryDirectory() as td, \
+                mock.patch.object(workspace, "CONFIG_FILE", os.path.join(td, "cfg.json")), \
+                mock.patch.object(workspace, "CONFIG_DIR", td), \
+                mock.patch.object(auth, "save_cookie") as save, \
+                mock.patch.object(sso, "login", lambda kid, on_number: (on_number("12"), "MoodleSession=y")[1]):
+            srv = mcp.Server()
+            srv.call("login", {"id": "student"})
+            srv.login_job["thread"].join(5)
+            save.assert_called_once_with("MoodleSession=y")
+            self.assertEqual(srv.client.cookie, "MoodleSession=y")
+
+
+class Client(unittest.TestCase):
+    def test_cookie_stays_on_klms(self):
+        from nubzuki import client
+        self.assertEqual(client.klms_url("/my/"), "https://klms.kaist.ac.kr/my/")
+        for bad in ("https://evil.example/x", "http://klms.kaist.ac.kr/x", "https://klms.kaist.ac.kr.evil.example/x"):
+            with self.assertRaises(client.KlmsError):
+                client.klms_url(bad)
+
+    def test_redirect_drops_cookie_off_host(self):
+        from nubzuki import client
+        h = client._KeepCookieOnHost()
+        req = urllib.request.Request("https://klms.kaist.ac.kr/a", headers={"Cookie": "MoodleSession=s"})
+        same = h.redirect_request(req, None, 302, "", {}, "https://klms.kaist.ac.kr/b")
+        other = h.redirect_request(req, None, 302, "", {}, "https://cdn.example/b")
+        self.assertEqual(same.get_header("Cookie"), "MoodleSession=s")
+        self.assertIsNone(other.get_header("Cookie"))
+
+    def test_filename_cannot_escape(self):
+        from nubzuki.client import filename_of
+        self.assertEqual(filename_of("https://klms.kaist.ac.kr/pluginfile.php/1/a/..%2F..%2Fx.pdf"), ".._.._x.pdf")
+        self.assertEqual(filename_of("https://klms.kaist.ac.kr/pluginfile.php/1/a/%2E%2E"), "_")
+        self.assertEqual(filename_of("https://klms.kaist.ac.kr/pluginfile.php/1/a/Lec%209.pdf?forcedownload=1"), "Lec 9.pdf")
+
+
 class Install(unittest.TestCase):
     def test_merges_and_backs_up(self):
         from nubzuki import install
@@ -198,6 +258,14 @@ class Install(unittest.TestCase):
             self.assertEqual(set(cfg["mcpServers"]), {"other", "nubzuki"})
             self.assertTrue(os.path.exists(p + ".bak"))
             self.assertEqual(install.add_to_json(p, "/bin/nubzuki", ["mcp"]), "same")
+
+    def test_allow_tools_once(self):
+        from nubzuki import install
+        with tempfile.TemporaryDirectory() as td:
+            self.assertTrue(install.allow_tools(td))
+            self.assertFalse(install.allow_tools(td))
+            with open(os.path.join(td, ".claude", "settings.json"), encoding="utf-8") as f:
+                self.assertEqual(json.load(f)["permissions"]["allow"], ["mcp__nubzuki"])
 
     def test_new_file(self):
         from nubzuki import install

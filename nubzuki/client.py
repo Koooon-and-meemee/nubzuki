@@ -6,7 +6,8 @@ import urllib.request
 
 from .auth import cookie_header
 
-BASE = "https://klms.kaist.ac.kr"
+HOST = "klms.kaist.ac.kr"
+BASE = f"https://{HOST}"
 UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/140.0 Safari/537.36")
 
@@ -27,17 +28,38 @@ def logged_in(html):
     return "로그아웃" in html or re.search(r"login/logout\.php", html) is not None
 
 
+class _KeepCookieOnHost(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        new = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if new is not None and urllib.parse.urlsplit(newurl).hostname != HOST:
+            new.remove_header("Cookie")
+        return new
+
+
+_opener = urllib.request.build_opener(_KeepCookieOnHost)
+
+
+def klms_url(path):
+    """Absolute KLMS URL for a path. Refuses other hosts so the session cookie never leaves KLMS."""
+    if not path.startswith("http"):
+        return f"{BASE}/{path.lstrip('/')}"
+    u = urllib.parse.urlsplit(path)
+    if u.scheme != "https" or u.hostname != HOST:
+        raise KlmsError(f"Refusing to send the KLMS session to {u.scheme}://{u.hostname}")
+    return path
+
+
 class Client:
     def __init__(self, cookie=None, strict=True):
         self.cookie = cookie or cookie_header()
         self.strict = strict
 
     def url(self, path):
-        return path if path.startswith("http") else f"{BASE}/{path.lstrip('/')}"
+        return klms_url(path)
 
     def _open(self, url, timeout=60):
         req = urllib.request.Request(url, headers={"Cookie": self.cookie, "User-Agent": UA, "Accept-Language": "ko-KR,ko;q=0.9"})
-        return urllib.request.urlopen(req, timeout=timeout)
+        return _opener.open(req, timeout=timeout)
 
     def get(self, path, tries=4):
         url = self.url(path)
@@ -77,4 +99,6 @@ class Client:
 
 
 def filename_of(url):
-    return urllib.parse.unquote(url.split("?")[0].rsplit("/", 1)[-1])
+    name = urllib.parse.unquote(url.split("?")[0].rsplit("/", 1)[-1])
+    name = re.sub(r"[\\/]", "_", name)
+    return "_" if name in ("", ".", "..") else name

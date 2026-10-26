@@ -49,6 +49,28 @@ def add_to_json(path, cmd, args):
     return status
 
 
+def allow_tools(ws_path):
+    """Let Claude Code sessions started in the semester folder call nubzuki tools without a prompt each time."""
+    path = os.path.join(ws_path, ".claude", "settings.json")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    cfg = {}
+    if os.path.exists(path):
+        with open(path, encoding="utf-8") as f:
+            cfg = json.load(f)
+    allow = cfg.setdefault("permissions", {}).setdefault("allow", [])
+    if f"mcp__{NAME}" in allow:
+        return False
+    allow.append(f"mcp__{NAME}")
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(cfg, f, ensure_ascii=False, indent=2)
+    return True
+
+
+def claude_code_has_server():
+    claude = shutil.which("claude")
+    return bool(claude) and subprocess.run([claude, "mcp", "get", NAME], capture_output=True).returncode == 0
+
+
 def add_to_claude_code(cmd, args):
     claude = shutil.which("claude")
     if not claude:

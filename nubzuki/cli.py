@@ -131,7 +131,7 @@ def cmd_dl(a):
     cl = Client(strict=False)
     os.makedirs(a.to, exist_ok=True)
     for u in a.urls:
-        dest = os.path.join(a.to, filename_of(u))
+        dest = os.path.join(a.to, workspace.safe(filename_of(u)))
         cl.download(u, dest)
         print(os.path.getsize(dest), dest)
 
@@ -141,6 +141,24 @@ def cmd_text(a):
         print(file_text(a.file))
     except TextError as e:
         sys.exit(str(e))
+
+
+def cmd_remote(a):
+    import shutil
+    import subprocess
+    from . import install
+    claude = shutil.which("claude")
+    if not claude:
+        sys.exit("Claude Code is not installed: https://claude.com/claude-code")
+    ws = need_ws()
+    if not install.claude_code_has_server():
+        install.add_to_claude_code(*install.server_command())
+        print("Connected nubzuki to Claude Code.")
+    install.allow_tools(ws.path)
+    print(f"Starting a Remote Control session in {ws.path}\n"
+          "Open the Claude app on your phone (or claude.ai/code) and pick this session.\n"
+          "Login requests go to the KAIST app on the same phone. Keep this terminal open; Ctrl+C to stop.\n", flush=True)
+    sys.exit(subprocess.run([claude, "remote-control", "--name", a.name], cwd=ws.path).returncode)
 
 
 def cmd_mcp(a):
@@ -193,6 +211,10 @@ def main(argv=None):
     s = sp.add_parser("text", help="extract text from a .pptx or .pdf")
     s.add_argument("file")
     s.set_defaults(fn=cmd_text)
+
+    s = sp.add_parser("remote", help="use KLMS from your phone: start a Claude Code Remote Control session in the semester folder")
+    s.add_argument("--name", default="KLMS", help="session name shown in the Claude app (default: KLMS)")
+    s.set_defaults(fn=cmd_remote)
 
     s = sp.add_parser("mcp", help="run the local MCP server, or `mcp install` to add it to Claude Code, the Claude app and Cursor")
     s.add_argument("action", nargs="?", choices=("serve", "install"), default="serve")
