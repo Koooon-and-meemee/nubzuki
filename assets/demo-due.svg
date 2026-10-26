@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 668" width="760" height="668" role="img" aria-label="Asking what assignments are due today, with a phone login">
+<style>
+text{font-family:-apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', 'Segoe UI', sans-serif;font-size:15px;fill:#1F2328}
+.card{fill:#FFFFFF;stroke:#D0D7DE} .rule{stroke:#D0D7DE}
+.title{font-weight:600;font-size:16px} .muted{fill:#656D76;font-size:13.5px}
+.strong{font-weight:650} .ububble{fill:#EAF0FB}
+.chip{fill:#F6F8FA;stroke:#D0D7DE} .chiptxt{font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, 'D2Coding', monospace;font-size:13px;fill:#424A53}
+.chipk{fill:#1A7F37;font-weight:700} .chipw{fill:#BF8700;font-weight:700} .chipn{fill:#656D76}
+.brand{fill:#0B3D91} .brandtxt{fill:#FFFFFF;font-weight:800;font-size:12px}
+.numbox{fill:#0B3D91} .num{fill:#FFFFFF;font-size:40px;font-weight:800;letter-spacing:4px}
+.dot{fill:#0B3D91} .warn{fill:#FFF8C5;stroke:#D4A72C} .warntxt{fill:#6B4F00;font-size:14px}
+.done{fill:#1A7F37} .due{fill:#CF222E;font-weight:650}
+@media (prefers-color-scheme: dark){
+text{fill:#E6EDF3} .card{fill:#0D1117;stroke:#30363D} .rule{stroke:#30363D}
+.muted{fill:#8D96A0} .ububble{fill:#1C2B4A}
+.chip{fill:#161B22;stroke:#30363D} .chiptxt{fill:#C9D1D9} .chipk{fill:#3FB950} .chipw{fill:#D29922} .chipn{fill:#8D96A0}
+.brand{fill:#DCE7FF} .brandtxt{fill:#0B3D91} .numbox{fill:#DCE7FF} .num{fill:#0B3D91}
+.dot{fill:#9DB8F2} .warn{fill:#2B2111;stroke:#9E6A03} .warntxt{fill:#E3B341}
+.done{fill:#3FB950} .due{fill:#FF7B72}
+}
+</style>
+<rect x="0.5" y="0.5" width="759" height="667" rx="14" class="card"/>
+<line x1="0" y1="52" x2="760" y2="52" class="rule"/>
+<circle cx="34" cy="26" r="11" class="brand"/>
+<text x="34" y="31" class="brandtxt" text-anchor="middle">N</text>
+<text x="54" y="31" class="title">Ask your AI</text>
+<text x="736" y="31" class="muted" text-anchor="end">nubzuki · local MCP server</text>
+<rect x="227" y="60" width="505" height="40" rx="20" class="ububble"/>
+<text x="245" y="85" class="" text-anchor="start">넙죽이한테 물어봐서 오늘 마무리 해야하는 과제 있는지 알려줘</text>
+<rect x="28" y="117" width="340" height="28" rx="8" class="chip"/>
+<text x="42" y="136" class="chiptxt"><tspan class="chipw">!</tspan><tspan dx="10">nubzuki · sweep</tspan><tspan class="chipn" dx="14">No live KLMS session</tspan></text>
+<rect x="28" y="153" width="262" height="28" rx="8" class="chip"/>
+<text x="42" y="172" class="chiptxt"><tspan class="chipk">✓</tspan><tspan dx="10">nubzuki · login</tspan><tspan class="chipn" dx="14">number: 47</tspan></text>
+<text x="28" y="210" class="" text-anchor="start">KLMS 세션이 만료돼서 휴대폰으로 로그인 요청을 보냈어요. KAIST 앱에서 이 숫자를 눌러주세요.</text>
+<rect x="28" y="232" width="112" height="64" rx="12" class="numbox"/>
+<text x="84" y="278" class="num" text-anchor="middle">47</text>
+<text x="156" y="260" class="muted" text-anchor="start">KAIST 앱 → 인증 요청 → 47 탭</text>
+<text x="156" y="282" class="muted" text-anchor="start">비밀번호는 보내지도 저장하지도 않아요</text>
+<rect x="28" y="313" width="309" height="28" rx="8" class="chip"/>
+<text x="42" y="332" class="chiptxt"><tspan class="chipk">✓</tspan><tspan dx="10">nubzuki · login_status</tspan><tspan class="chipn" dx="14">logged_in</tspan></text>
+<rect x="28" y="349" width="340" height="28" rx="8" class="chip"/>
+<text x="42" y="368" class="chiptxt"><tspan class="chipk">✓</tspan><tspan dx="10">nubzuki · sweep</tspan><tspan class="chipn" dx="14">2 deadlines · 1 post</tspan></text>
+<rect x="28" y="385" width="317" height="28" rx="8" class="chip"/>
+<text x="42" y="404" class="chiptxt"><tspan class="chipk">✓</tspan><tspan dx="10">nubzuki · read_post</tspan><tspan class="chipn" dx="14">HSS.20117 Q&amp;A</tspan></text>
+<text x="28" y="448" class="" text-anchor="start"><tspan class="strong">오늘(10/28 수) 마감</tspan></text>
+<circle cx="34" cy="471" r="3" class="dot"/>
+<text x="46" y="476" class="" text-anchor="start"><tspan class="strong">스타트업 101</tspan>  중간발표 과제물 제출 · <tspan class="due">23:59</tspan> · 아직 제출 안 됨</text>
+<circle cx="34" cy="499" r="3" class="dot"/>
+<text x="46" y="504" class="" text-anchor="start"><tspan class="strong">일반화학 II</tspan>  9주차 온라인 퀴즈 · <tspan class="due">18:00</tspan> · 10문항, 1회 응시</text>
+<text x="28" y="536" class="" text-anchor="start"><tspan class="strong">참고</tspan></text>
+<circle cx="34" cy="559" r="3" class="dot"/>
+<text x="46" y="564" class="" text-anchor="start">Q&amp;A 답변: 발표 자료는 PDF로, 10분 이내. 조원 중 한 명만 제출하면 돼요.</text>
+<circle cx="34" cy="587" r="3" class="dot"/>
+<text x="46" y="592" class="" text-anchor="start"><tspan class="done">✓</tspan>  미적분학Ⅱ 과제 8은 이미 제출돼 있어요.</text>
+<rect x="28" y="606" width="704" height="34" rx="8" class="warn"/>
+<text x="44" y="628" class="warntxt" text-anchor="start">⚠  퀴즈가 먼저예요. 18시 전에 일반화학 퀴즈부터 끝내세요.</text>
+</svg>

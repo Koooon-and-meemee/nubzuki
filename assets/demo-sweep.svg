@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 490" width="760" height="490" role="img" aria-label="nubzuki sweep output in a terminal">
+<style>
+text{font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, 'D2Coding', monospace;font-size:14px;fill:#C9D1D9;white-space:pre}
+.t-h{fill:#9DB8F2;font-weight:700} .t-c{fill:#E6EDF3;font-weight:600} .t-n{fill:#7EE787}
+.t-t{fill:#8D96A0} .t-f{fill:#79C0FF} .t-a{fill:#E3B341} .t-m{fill:#6E7681}
+.t-ps{fill:#6E7681} .t-cmd{fill:#7EE787} .wtitle{fill:#8D96A0;font-size:12.5px}
+</style>
+<rect x="0.5" y="0.5" width="759" height="489" rx="12" fill="#0D1117" stroke="#30363D"/>
+<path d="M0.5 12.5 A12 12 0 0 1 12.5 0.5 H747.5 A12 12 0 0 1 759.5 12.5 V36.5 H0.5 Z" fill="#161B22"/>
+<line x1="0" y1="36.5" x2="760" y2="36.5" stroke="#30363D"/>
+<circle cx="20" cy="18.5" r="6" fill="#FF5F57"/><circle cx="40" cy="18.5" r="6" fill="#FEBC2E"/><circle cx="60" cy="18.5" r="6" fill="#28C840"/>
+<text x="380" y="23" text-anchor="middle" class="wtitle">~/KAIST/2026F</text>
+<text x="22" y="66" class="t-p"><tspan class="t-ps">$</tspan> nubzuki <tspan class="t-cmd">sweep</tspan></text>
+<text x="22" y="110" class="t-h">■ Boards</text>
+<text x="22" y="154" class="t-c">[MAS.10002 미적분학Ⅱ] Notices</text>
+<text x="22" y="176" class="t-n">   NEW [2026-10-26]  중간고사 &amp; Part II Exam 클레임 안내</text>
+<text x="22" y="198" class="t-c">[HSS.20117 스타트업 101] Q&amp;A</text>
+<text x="22" y="220" class="t-n">   NEW [2026-10-25]  중간발표 순서 문의</text>
+<text x="22" y="264" class="t-h">■ Assignments, quizzes, files, grades</text>
+<text x="22" y="308" class="t-c">[PH.10042 일반물리학 II]</text>
+<text x="22" y="330" class="t-t">  &lt;new files&gt;</text>
+<text x="22" y="352" class="t-f">    Lecture Note #9 Chap29.pdf  → PH.10042/files/</text>
+<text x="22" y="374" class="t-c">[HSS.20117 스타트업 101]</text>
+<text x="22" y="396" class="t-t">  &lt;assign&gt;</text>
+<text x="22" y="418" class="t-a">    9주차 | 중간발표 과제물 제출 | 10월 28일(수) 오후 11:59 | 제출물 없음</text>
+<text x="22" y="462" class="t-m">(state saved: ~/KAIST/2026F/.nubzuki/state.json)</text>
+</svg>
