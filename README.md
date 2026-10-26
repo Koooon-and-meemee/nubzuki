@@ -20,7 +20,6 @@ Ask what's due today and it actually goes and checks.</p>
 pipx install git+https://github.com/Koooon-and-meemee/nubzuki
 
 nubzuki login --id <your KAIST ID>   # approve it in the KAIST app
-nubzuki init                         # makes ~/KAIST/2026F/<course>/
 nubzuki mcp install
 ```
 
@@ -33,6 +32,7 @@ Restart the app and ask something like
 
 You don't have to keep anything running. The app starts nubzuki when it needs it.
 When your KLMS session runs out, the AI sends a login request to your phone and tells you which number to tap.
+The first time, it makes a folder per course under `~/KAIST/2026F/` (`nubzuki init --root DIR` to put them somewhere else).
 
 You need the KAIST login app registered for your account (sso.kaist.ac.kr → 로그인 앱 등록).
 If you don't have pipx: `brew install pipx` on a Mac, `pip install --user pipx` otherwise.
@@ -77,9 +77,10 @@ with nubzuki's tools allowed so you don't have to approve every call from your p
 changed rows in the assignment and quiz tables, newly uploaded course files and new grades.
 `--download` also saves the new files into each course's `files/` folder.
 The first run saves a baseline and only shows posts from the last 7 days.
+A full sweep takes a minute or so, because KLMS serves about one page a second.
 
 You never type a course or board ID. nubzuki reads your courses off the dashboard.
-Run `nubzuki init` again when the semester changes.
+When KLMS moves on to a new semester, `sweep` tells you, and `nubzuki init` switches over.
 
 ## Privacy
 
@@ -91,7 +92,7 @@ even if a post links somewhere else. The MCP tools can only read and write insid
 `.nubzuki/state.json` in the semester folder has your grades in it. Don't commit it or share it.
 
 This is an unofficial tool and has nothing to do with KAIST. Use it on your own account.
-It sends at most two requests at a time. Please don't run it in a loop.
+It sends one request at a time. Please don't run it in a loop.
 
 ## Reference
 
@@ -112,14 +113,15 @@ nubzuki sweep --json
 nubzuki read <board> <bwid> [<board> <bwid> ...]   # post body + attachment links
 nubzuki read <board> <bwid> --save                 # save to <course>/notices/<bwid>.md
 nubzuki dl <url> [...] --to CS.10001/files         # download attachments
-nubzuki text lecture.pdf                           # PDF, PPTX (with speaker notes), TXT, MD
+nubzuki text lecture.pdf                           # PDF, PPTX (with speaker notes), DOCX, TXT, MD
 
 nubzuki mcp install [--only codex ...]             # claude-code, claude-app, codex, gemini, cursor
 nubzuki remote [--name KLMS]                       # use it from the Claude app on your phone
 nubzuki mcp                                        # the MCP server itself; apps start it for you
 ```
 
-`nubzuki text` needs `pdftotext` for PDFs (`brew install poppler` or `apt install poppler-utils`).
+PDFs work out of the box on a Mac. On Linux and Windows `nubzuki text` needs `pdftotext`
+(`apt install poppler-utils`, `choco install poppler`).
 </details>
 
 <details>
@@ -145,7 +147,8 @@ args = ["mcp"]
 
 Claude Code: `claude mcp add nubzuki -s user -- /full/path/to/nubzuki mcp`
 
-Tools: `init`, `courses`, `sweep`, `read_post`, `download`, `list_files`, `file_text`, `login`, `login_status`.
+Tools: `sweep`, `deadlines`, `posts`, `read_post`, `course_files`, `download`, `file_text`, `list_files`,
+`courses`, `init`, `login`, `login_status`.
 
 Agents without MCP can call the CLI directly. Every command prints plain text, and `sweep --json` gives structured output.
 For Claude Code there's also a skill in `skills/nubzuki/SKILL.md`.

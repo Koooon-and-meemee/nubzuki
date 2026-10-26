@@ -7,11 +7,20 @@ description: Use when the user asks to check KAIST KLMS - "check KLMS", new noti
 
 The `nubzuki` CLI must be installed. If it is missing, suggest `pipx install git+https://github.com/Koooon-and-meemee/nubzuki`.
 
+## Prefer the MCP tools
+
+If the nubzuki MCP tools are available, use them instead of the CLI:
+- anything new: `sweep` (if it says running, call it again; KLMS is slow)
+- what's due: `sweep`, then `deadlines` (sweep lists only changes)
+- a course's latest notice: `posts`, then `read_post`
+- lecture notes: `course_files`, `download`, then `file_text`
+
+To set them up, suggest `! nubzuki mcp install`.
+
 ## First time
 
-1. Run `nubzuki init`. It reads the current semester (e.g. `2026F`) and enrolled courses from the dashboard
-   and creates `~/KAIST/2026F/<COURSE_CODE>/{files,notices}`. Use `--root` for a different location.
-2. When the semester changes, run `nubzuki init` again. Existing folders are kept; only new courses are added.
+The semester folder (`~/KAIST/2026F/<COURSE_CODE>/{files,notices}`) is created on first use.
+`nubzuki init --root DIR` puts it elsewhere. When `sweep` says KLMS has moved to a new semester, run `nubzuki init`.
 
 ## Every time
 
@@ -20,7 +29,7 @@ The `nubzuki` CLI must be installed. If it is missing, suggest `pipx install git
    Several at once: `nubzuki read 111 222 333 444`. `--save` keeps a copy in the course's `notices/` folder.
 3. Download new course files with `nubzuki sweep --download` (into each course's `files/`).
    For post attachments use `nubzuki dl <url> --to <course>/files`.
-4. Always extract and read downloaded PDFs and PPTX files with `nubzuki text <file>`. Exam scope, deadlines and rooms are often only in attachments.
+4. Always extract and read downloaded PDF, PPTX and DOCX files with `nubzuki text <file>`. Exam scope, deadlines and rooms are often only in attachments.
 5. Summarize deadlines, exams, rooms and changes for the user in date order. Don't paste raw tables.
 
 ## Errors
@@ -28,14 +37,12 @@ The `nubzuki` CLI must be installed. If it is missing, suggest `pipx install git
 - "Not logged in" / expired session: ask the user to run `! nubzuki login` themselves and tap the number shown in the KAIST app. Do not run it for them repeatedly; each run sends a push to their phone.
   The state file was not overwritten, so simply rerun after they log in.
 - "session lock": the session is still valid. Don't ask the user to log in; rerun in about 30 seconds.
-- If "nothing new" looks suspicious, suspect the session before the content. Check that `nubzuki courses` works.
+- "Nothing new" can be trusted: nubzuki stops with an error on an expired session or a session lock instead of reporting an empty result.
 - If no session is found, the same `nubzuki login` applies (`nubzuki login --cookie` to paste a cookie instead). Never print cookie values in the conversation.
 
 ## Reference
 
-- If the nubzuki MCP tools (`sweep`, `read_post`, `file_text`, ...) are available, prefer them over the CLI. To set them up, suggest `! nubzuki mcp install`.
 - To use KLMS from their phone, suggest `nubzuki remote` (Claude Code Remote Control in the semester folder).
-
 - `nubzuki courses` lists course IDs and the Notices / Q&A / free board IDs.
 - `nubzuki sweep --json` gives machine-readable output.
 - Some courses announce things only verbally in class. "Not on KLMS" does not mean "doesn't exist".
