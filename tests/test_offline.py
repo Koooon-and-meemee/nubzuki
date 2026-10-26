@@ -1,3 +1,4 @@
+import json
 import os
 import sqlite3
 import subprocess
@@ -128,6 +129,32 @@ class Sso(unittest.TestCase):
             self.assertEqual(sso.cooldown_left(), 0)
             sso._mark_push()
             self.assertGreater(sso.cooldown_left(), 50)
+
+
+class Mcp(unittest.TestCase):
+    def rpc(self, *msgs):
+        r = subprocess.run([sys.executable, "-m", "nubzuki", "mcp"], capture_output=True, encoding="utf-8",
+                           input="".join(json.dumps(m) + "\n" for m in msgs))
+        return [json.loads(x) for x in r.stdout.splitlines()]
+
+    def test_handshake_and_tools(self):
+        out = self.rpc({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-06-18"}},
+                       {"jsonrpc": "2.0", "method": "notifications/initialized"},
+                       {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
+                       {"jsonrpc": "2.0", "id": 3, "method": "nope"})
+        self.assertEqual([m["id"] for m in out], [1, 2, 3])
+        self.assertEqual(out[0]["result"]["serverInfo"]["name"], "nubzuki")
+        names = {t["name"] for t in out[1]["result"]["tools"]}
+        self.assertTrue({"sweep", "read_post", "file_text", "login"} <= names)
+        self.assertEqual(out[2]["error"]["code"], -32601)
+
+    def test_paths_stay_in_workspace(self):
+        from nubzuki import mcp
+        with tempfile.TemporaryDirectory() as td:
+            ws = workspace.Workspace(td)
+            with self.assertRaises(mcp.ToolError):
+                mcp.Server().inside(ws, "../../etc/passwd")
+            self.assertTrue(mcp.Server().inside(ws, "CS/files/a.pdf").startswith(os.path.realpath(td)))
 
 
 class Cli(unittest.TestCase):

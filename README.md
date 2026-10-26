@@ -64,6 +64,20 @@ curl -fsSL https://raw.githubusercontent.com/Koooon-and-meemee/nubzuki/main/skil
   -o ~/.claude/skills/nubzuki/SKILL.md
 ```
 
+**MCP** (Claude Desktop, Claude Code, Cursor and other MCP clients): `nubzuki mcp` runs a local stdio server
+with the tools `courses`, `sweep`, `read_post`, `download`, `list_files`, `file_text`, `login` and `login_status`.
+
+```sh
+claude mcp add nubzuki -- nubzuki mcp
+```
+
+```json
+{ "mcpServers": { "nubzuki": { "command": "nubzuki", "args": ["mcp"] } } }
+```
+
+It runs only on your machine and talks only to KLMS and KAIST SSO. Downloads and `file_text` stay inside the semester folder.
+`login` sends a request to your phone and returns the number to tap; it is never sent without the agent calling it.
+
 **Any other agent** (Cursor, Codex, Gemini CLI, scripts): every command prints plain text, and `sweep --json`
 returns structured results. Course files land in `<course>/files/`, and `nubzuki text` turns PDF and PPTX into text,
 so an agent can read lecture notes without you attaching anything.
@@ -138,6 +152,7 @@ nubzuki read <board> <bwid> [<board> <bwid> ...]   # post body + attachment link
 nubzuki read <board> <bwid> --save                 # save to <course>/notices/<bwid>.md
 nubzuki dl <url> [...] --to CS.10001/files         # download attachments
 nubzuki text lecture.pdf                           # PDF, PPTX (with speaker notes), TXT, MD
+nubzuki mcp                                        # local MCP server over stdio
 ```
 
 `nubzuki text` needs `pdftotext` for PDFs (`brew install poppler` or `apt install poppler-utils`).

@@ -143,6 +143,11 @@ def cmd_text(a):
         sys.exit(str(e))
 
 
+def cmd_mcp(a):
+    from .mcp import serve
+    serve()
+
+
 def main(argv=None):
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
@@ -184,6 +189,9 @@ def main(argv=None):
     s = sp.add_parser("text", help="extract text from a .pptx or .pdf")
     s.add_argument("file")
     s.set_defaults(fn=cmd_text)
+
+    s = sp.add_parser("mcp", help="run a local MCP server over stdio for AI agents")
+    s.set_defaults(fn=cmd_mcp)
 
     a = p.parse_args(argv)
     try:
