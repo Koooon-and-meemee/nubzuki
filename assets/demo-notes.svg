@@ -1,9 +1,9 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 418" width="760" height="418" role="img" aria-label="Fetching General Biology lecture notes and summarizing today&#x27;s lecture">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 442" width="760" height="442" role="img" aria-label="Fetching General Biology lecture notes and summarizing today&#x27;s lecture">
 <style>
 text{font-family:-apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', 'Segoe UI', sans-serif;font-size:15px;fill:#1F2328}
 .card{fill:#F6F7F9} .rule{stroke:#E4E7EB}
 .title{font-weight:600;font-size:16px} .muted{fill:#656D76;font-size:13.5px}
-.strong{font-weight:650} .ububble{fill:#E6E9EE}
+.strong{font-weight:650} .ububble{fill:#E6E9EE} .abubble{fill:#FFFFFF}
 .chiptxt{font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, 'D2Coding', monospace;font-size:13px;fill:#6E7781}
 .chipk{fill:#8C959F} .chipw{fill:#BF8700;font-weight:700} .chipn{fill:#656D76}
 .brand{fill:#0B3D91} .brandtxt{fill:#FFFFFF;font-weight:800;font-size:12px}
@@ -12,31 +12,32 @@ text{font-family:-apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Malg
 .done{fill:#1A7F37} .due{fill:#CF222E;font-weight:650}
 @media (prefers-color-scheme: dark){
 text{fill:#E6EDF3} .card{fill:#161B22} .rule{stroke:#21262D}
-.muted{fill:#8D96A0} .ububble{fill:#262C36}
+.muted{fill:#8D96A0} .ububble{fill:#262C36} .abubble{fill:#0D1117}
 .chiptxt{fill:#8B949E} .chipk{fill:#6E7681} .chipw{fill:#D29922} .chipn{fill:#8D96A0}
 .brand{fill:#DCE7FF} .brandtxt{fill:#0B3D91} .numbox{fill:#DCE7FF} .num{fill:#0B3D91}
 .dot{fill:#9DB8F2} .warn{fill:#2B2111;stroke:#9E6A03} .warntxt{fill:#E3B341}
 .done{fill:#3FB950} .due{fill:#FF7B72}
 }
 </style>
-<rect x="0" y="0" width="760" height="418" rx="10" class="card"/>
+<rect x="0" y="0" width="760" height="442" rx="10" class="card"/>
 <line x1="0" y1="52" x2="760" y2="52" class="rule"/>
-<text x="28" y="31" class="title">KLMS</text>
-<text x="736" y="31" class="muted" text-anchor="end">nubzuki · local MCP server</text>
+<text x="28" y="31" class="title">Codex</text>
+<text x="736" y="31" class="muted" text-anchor="end">nubzuki MCP</text>
 <rect x="213" y="60" width="519" height="40" rx="20" class="ububble"/>
 <text x="231" y="85" class="" text-anchor="start">넙죽이한테 일생 렉노 받아와서 오늘 무슨 강의 하는지 정리해줘</text>
 <text x="28" y="134" class="chiptxt"><tspan class="chipk">⏺</tspan><tspan dx="8">nubzuki · courses</tspan><tspan class="chipn" dx="14">BS.10020 일반생물학</tspan></text>
 <text x="28" y="158" class="chiptxt"><tspan class="chipk">⏺</tspan><tspan dx="8">nubzuki · sweep</tspan><tspan class="chipn" dx="14">download: 1 new file</tspan></text>
 <text x="28" y="182" class="chiptxt"><tspan class="chipk">⏺</tspan><tspan dx="8">nubzuki · file_text</tspan><tspan class="chipn" dx="14">BS.10020/files/Lecture 17_Cellular Respiration.pdf</tspan></text>
-<text x="28" y="216" class="" text-anchor="start"><tspan class="strong">오늘 일반생물학: Lecture 17 세포 호흡</tspan>  <tspan class="muted">(42 slides, 오늘 아침 업로드)</tspan></text>
-<circle cx="34" cy="241" r="3" class="dot"/>
-<text x="46" y="246" class="" text-anchor="start"><tspan class="strong">해당과정</tspan>  포도당 → 피루브산 2분자, ATP 2 · NADH 2 (세포질)</text>
-<circle cx="34" cy="269" r="3" class="dot"/>
-<text x="46" y="274" class="" text-anchor="start"><tspan class="strong">피루브산 산화 · 시트르산 회로</tspan>  미토콘드리아 기질, CO₂ 방출, NADH · FADH₂ 생성</text>
-<circle cx="34" cy="297" r="3" class="dot"/>
-<text x="46" y="302" class="" text-anchor="start"><tspan class="strong">산화적 인산화</tspan>  전자전달계 → H⁺ 농도 기울기 → ATP 합성효소</text>
-<circle cx="34" cy="325" r="3" class="dot"/>
-<text x="46" y="330" class="" text-anchor="start"><tspan class="strong">발효</tspan>  산소가 없을 때 NAD⁺ 재생 (젖산 · 알코올 발효)</text>
-<text x="28" y="362" class="" text-anchor="start">슬라이드 31에 <tspan class="strong">"중간고사 이후 범위 시작"</tspan>이라고 적혀 있어요. 기말 범위에 들어가요.</text>
-<text x="28" y="392" class="" text-anchor="start"><tspan class="muted">파일은 ~/KAIST/2026F/BS.10020/files/ 에 받아뒀어요.</tspan></text>
+<rect x="28" y="200" width="664" height="222" rx="16" class="abubble"/>
+<text x="44" y="226" class="" text-anchor="start"><tspan class="strong">오늘 일반생물학: Lecture 17 세포 호흡</tspan>  <tspan class="muted">(42 slides, 오늘 아침 업로드)</tspan></text>
+<circle cx="50" cy="251" r="3" class="dot"/>
+<text x="62" y="256" class="" text-anchor="start"><tspan class="strong">해당과정</tspan>  포도당 → 피루브산 2분자, ATP 2 · NADH 2 (세포질)</text>
+<circle cx="50" cy="279" r="3" class="dot"/>
+<text x="62" y="284" class="" text-anchor="start"><tspan class="strong">피루브산 산화 · 시트르산 회로</tspan>  미토콘드리아 기질, CO₂ 방출, NADH · FADH₂ 생성</text>
+<circle cx="50" cy="307" r="3" class="dot"/>
+<text x="62" y="312" class="" text-anchor="start"><tspan class="strong">산화적 인산화</tspan>  전자전달계 → H⁺ 농도 기울기 → ATP 합성효소</text>
+<circle cx="50" cy="335" r="3" class="dot"/>
+<text x="62" y="340" class="" text-anchor="start"><tspan class="strong">발효</tspan>  산소가 없을 때 NAD⁺ 재생 (젖산 · 알코올 발효)</text>
+<text x="44" y="372" class="" text-anchor="start">슬라이드 31에 <tspan class="strong">"중간고사 이후 범위 시작"</tspan>이라고 적혀 있어요. 기말 범위에 들어가요.</text>
+<text x="44" y="402" class="" text-anchor="start"><tspan class="muted">파일은 ~/KAIST/2026F/BS.10020/files/ 에 받아뒀어요.</tspan></text>
 </svg>
