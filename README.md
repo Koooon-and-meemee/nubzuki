@@ -1,7 +1,3 @@
-<p align="center">
-  <img src="assets/nubzuki.svg" width="240" alt="Nubzuki holding a laptop">
-</p>
-
 <h1 align="center">nubzuki</h1>
 
 <p align="center">An unofficial CLI that tells you <b>only what changed</b> on KAIST KLMS since you last looked,<br>and keeps a tidy folder for every course you take.</p>
@@ -124,4 +120,4 @@ MIT
 
 ---
 
-<sub>Nubzuki is KAIST's mascot. This illustration is unofficial fan art; this project is not affiliated with or endorsed by KAIST.</sub>
+<sub>This project is not affiliated with or endorsed by KAIST.</sub>
