@@ -5,7 +5,7 @@ from .text import strip
 
 
 SEMESTER_SUFFIX = {"10": "S", "11": "U", "20": "F", "21": "W"}
-SEMESTER_NAME = {"S": "봄", "U": "여름", "F": "가을", "W": "겨울"}
+SEMESTER_NAME = {"S": "Spring", "U": "Summer", "F": "Fall", "W": "Winter"}
 
 _COURSE_LI = re.compile(
     r'<div class="course_li">.*?<div class="course_cd">(.*?)</div>\s*'
@@ -18,7 +18,7 @@ def semester_of(dash_html):
     y = re.search(r'name="year">.*?<option value="(\d{4})"[^>]*selected', dash_html, re.S)
     s = re.search(r'name="semester">.*?<option value="(\d+)"[^>]*selected', dash_html, re.S)
     if not (y and s):
-        raise RuntimeError("대시보드에서 연도/학기를 찾지 못했습니다 (KLMS 화면 구조 변경?).")
+        raise RuntimeError("Could not find the year/semester on the dashboard (did the KLMS layout change?).")
     return y.group(1) + SEMESTER_SUFFIX.get(s.group(1), s.group(1))
 
 

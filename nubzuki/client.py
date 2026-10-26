@@ -55,8 +55,8 @@ class Client:
             break
         if self.strict and not logged_in(html):
             if "session lock" in html:
-                raise SessionLocked(f"세션 잠금이 풀리지 않았습니다 (잠시 뒤 재시도): {url}")
-            raise SessionExpired(f"로그인되지 않은 응답: {url}")
+                raise SessionLocked(f"Moodle session lock did not clear, try again shortly: {url}")
+            raise SessionExpired(f"Not logged in: {url}")
         return html
 
     def download(self, path, dest):
@@ -72,7 +72,7 @@ class Client:
     def check(self):
         h = self.get("/my/")
         if not logged_in(h):
-            raise SessionExpired("KLMS 세션이 없습니다. 브라우저에서 다시 로그인하세요.")
+            raise SessionExpired("No KLMS session. Log in again in your browser.")
         return h
 
 

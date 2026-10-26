@@ -8,7 +8,8 @@ from . import board
 from .client import filename_of
 from .text import totext
 
-BOARD_LABEL = {"notice": "공지", "qna": "Q&A", "free": "자유"}
+GRADE_SKIP = ("성적 항목", "합계", "Grade item", "Course total")
+BOARD_LABEL = {"notice": "Notices", "qna": "Q&A", "free": "Board"}
 
 
 def course_files(client, cid):
@@ -30,7 +31,7 @@ def grade_rows(client, cid):
         cells = [re.sub(r"\s+", " ", H.unescape(re.sub(r"(?s)<[^>]+>", "", c))).strip()
                  for c in re.findall(r'(?is)<t[dh][^>]*>(.*?)</t[dh]>', r)]
         line = " | ".join(cells)
-        if line.strip(" |") and "성적 항목" not in line and "합계" not in line:
+        if line.strip(" |") and not any(k in line for k in GRADE_SKIP):
             rows.append(line[:200])
     return rows
 
@@ -54,7 +55,7 @@ def run(client, ws, since=None, download=False, out=print):
     with ThreadPoolExecutor(2) as ex:
         results = list(ex.map(lambda j: board.posts(client, j[2]), jobs))
 
-    out("=" * 72 + "\n■ 게시판\n" + "=" * 72)
+    out("=" * 72 + "\n■ Boards\n" + "=" * 72)
     for (c, kind, bid), rows in zip(jobs, results):
         key = f"board:{bid}"
         seen = set(old.get(key, []))
@@ -67,7 +68,7 @@ def run(client, ws, since=None, download=False, out=print):
             out(f"   NEW [{r['date']}] bwid={r['bwid']}  {r['title']}")
             report["posts"].append({**r, "course": c["code"], "board": bid, "kind": kind})
 
-    out("\n" + "=" * 72 + "\n■ 과제·퀴즈·자료·성적\n" + "=" * 72)
+    out("\n" + "=" * 72 + "\n■ Assignments, quizzes, files, grades\n" + "=" * 72)
     for c in ws.courses:
         cid = c["id"]
         chunks = []
@@ -94,14 +95,14 @@ def run(client, ws, since=None, download=False, out=print):
                 else:
                     lines.append(name)
                 report["files"].append({"course": c["code"], "url": f, "name": name})
-            chunks.append("  <새 강의자료>\n    " + "\n    ".join(lines))
+            chunks.append("  <new files>\n    " + "\n    ".join(lines))
 
         g = grade_rows(client, cid)
         key = f"grades:{cid}"
         newg = [x for x in g if x not in old.get(key, [])]
         new[key] = g
         if newg:
-            chunks.append("  <성적 변동>\n    " + "\n    ".join(newg))
+            chunks.append("  <grade changes>\n    " + "\n    ".join(newg))
             report["grades"] += [{"course": c["code"], "row": x} for x in newg]
 
         if chunks:
@@ -109,5 +110,5 @@ def run(client, ws, since=None, download=False, out=print):
             out("\n".join(chunks))
 
     ws.save_state(new)
-    out(f"\n(상태 저장: {ws.state_file})")
+    out(f"\n(state saved: {ws.state_file})")
     return report

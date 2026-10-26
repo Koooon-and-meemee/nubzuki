@@ -60,7 +60,7 @@ def _chrome_key():
         ["security", "find-generic-password", "-w", "-s", "Chrome Safe Storage"],
         capture_output=True, text=True)
     if p.returncode != 0 or not p.stdout.strip():
-        raise AuthError("키체인에서 Chrome Safe Storage 키를 읽지 못했습니다 (승인 거부?).")
+        raise AuthError("Could not read the Chrome Safe Storage key from the Keychain (access denied?).")
     return hashlib.pbkdf2_hmac("sha1", p.stdout.strip().encode(), b"saltysalt", 1003, 16)
 
 
@@ -135,6 +135,6 @@ def cookie_header():
         if v:
             return v
     raise AuthError(
-        "KLMS 쿠키를 찾지 못했습니다.\n"
-        "  - 브라우저에서 klms.kaist.ac.kr 에 로그인한 뒤 다시 실행하거나\n"
-        "  - `nubzuki login` 으로 MoodleSession 값을 직접 저장하세요.")
+        "No KLMS cookie found.\n"
+        "  - Log in to klms.kaist.ac.kr in your browser and run again, or\n"
+        "  - save your MoodleSession value with `nubzuki login`.")

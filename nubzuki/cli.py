@@ -16,36 +16,36 @@ from .text import pptx_text
 def need_ws():
     ws = workspace.find()
     if not ws:
-        sys.exit("워크스페이스가 없습니다. 먼저 `nubzuki init` 을 실행하세요.")
+        sys.exit("No workspace found. Run `nubzuki init` first.")
     return ws
 
 
 def cmd_login(a):
-    print("브라우저 개발자도구 > Application > Cookies > klms.kaist.ac.kr 에서 MoodleSession 값을 복사하세요.")
+    print("Copy the MoodleSession value from your browser: DevTools > Application > Cookies > klms.kaist.ac.kr")
     v = getpass.getpass("MoodleSession: ").strip()
     if not v:
-        sys.exit("입력이 비었습니다.")
+        sys.exit("Empty input.")
     if "=" not in v:
         v = f"MoodleSession={v}"
     auth.save_cookie(v)
     Client(cookie=v).check()
-    print(f"로그인 확인 완료. 저장 위치: {auth.COOKIE_FILE} (권한 600)")
+    print(f"Logged in. Saved to {auth.COOKIE_FILE} (mode 600)")
 
 
 def cmd_init(a):
     root = a.root or workspace.load_config().get("root")
     if not root:
         default = os.path.join(os.path.expanduser("~"), "KAIST")
-        root = input(f"학기 폴더를 만들 기본 위치 [{default}]: ").strip() or default
+        root = input(f"Where should semester folders live? [{default}]: ").strip() or default
     sem, courses = discover(Client())
     ws, created = workspace.init(root, sem, courses)
     y, s = sem[:4], sem[4:]
-    print(f"\n{y}년 {SEMESTER_NAME.get(s, s)}학기 워크스페이스: {ws.path}")
+    print(f"\n{SEMESTER_NAME.get(s, s)} {y} workspace: {ws.path}")
     for c in courses:
         mark = "+" if c["folder"] in created else " "
         sec = f"({c['section']})" if c["section"] else ""
         print(f"  {mark} {c['folder']:<12} {c['code']}{sec} {c['name']}")
-    print(f"\n과목 {len(courses)}개, 새 폴더 {len(created)}개. 각 과목 폴더에 files/ notices/ 가 있습니다.")
+    print(f"\n{len(courses)} courses, {len(created)} new folders. Each course folder has files/ and notices/.")
 
 
 def cmd_courses(a):
@@ -57,7 +57,7 @@ def cmd_courses(a):
     for c in ws.courses:
         b = c.get("boards", {})
         print(f"  {c['code']:<10} {c['section']:<5} id={c['id']:<7} "
-              f"공지={b.get('notice', '-')} Q&A={b.get('qna', '-')} 자유={b.get('free', '-')}  {c['name']}")
+              f"notice={b.get('notice', '-')} qna={b.get('qna', '-')} free={b.get('free', '-')}  {c['name']}")
 
 
 def cmd_sweep(a):
@@ -70,7 +70,7 @@ def cmd_sweep(a):
 
 def cmd_read(a):
     if len(a.ids) % 2:
-        sys.exit("사용: nubzuki read <board> <bwid> [<board> <bwid> ...]")
+        sys.exit("usage: nubzuki read <board> <bwid> [<board> <bwid> ...]")
     ws = workspace.find()
     by_board = {b: c for c in (ws.courses if ws else []) for b in c.get("boards", {}).values()}
     cl = Client()
@@ -78,13 +78,13 @@ def cmd_read(a):
         text, files = board.article(cl, bid, bwid)
         print(f"\n{'=' * 70}\n### board={bid} bwid={bwid}\n{'=' * 70}\n{text[:6000]}")
         if files:
-            print("\n[첨부]\n" + "\n".join(f"  {f}" for f in files))
+            print("\n[attachments]\n" + "\n".join(f"  {f}" for f in files))
         c = by_board.get(int(bid))
         if a.save and c:
             p = os.path.join(ws.folder(c), "notices", f"{bwid}.md")
             with open(p, "w") as f:
                 f.write(text + ("\n\n" + "\n".join(files) if files else "") + "\n")
-            print(f"\n(저장: {p})")
+            print(f"\n(saved: {p})")
 
 
 def cmd_dl(a):
@@ -102,44 +102,44 @@ def cmd_text(a):
         print(pptx_text(p))
     elif p.lower().endswith(".pdf"):
         if not shutil.which("pdftotext"):
-            sys.exit("pdftotext 가 필요합니다 (brew install poppler / apt install poppler-utils).")
+            sys.exit("pdftotext is required (brew install poppler / apt install poppler-utils).")
         subprocess.run(["pdftotext", "-layout", p, "-"])
     else:
-        sys.exit("pptx 또는 pdf 만 지원합니다.")
+        sys.exit("Only .pptx and .pdf are supported.")
 
 
 def main(argv=None):
-    p = argparse.ArgumentParser(prog="nubzuki", description="KAIST KLMS 새 소식 스윕 + 학기 폴더 정리")
+    p = argparse.ArgumentParser(prog="nubzuki", description="Sweep KAIST KLMS for what changed and keep per-semester course folders")
     p.add_argument("--version", action="version", version=__version__)
     sp = p.add_subparsers(dest="cmd", required=True)
 
-    sp.add_parser("login", help="MoodleSession 쿠키를 직접 저장").set_defaults(fn=cmd_login)
+    sp.add_parser("login", help="save your MoodleSession cookie manually").set_defaults(fn=cmd_login)
 
-    s = sp.add_parser("init", help="현재 학기 폴더(예: 2026F)와 과목별 폴더 만들기")
-    s.add_argument("--root", help="학기 폴더를 둘 기본 위치 (기본: ~/KAIST)")
+    s = sp.add_parser("init", help="create the current semester folder (e.g. 2026F) with one folder per course")
+    s.add_argument("--root", help="where semester folders live (default: ~/KAIST)")
     s.set_defaults(fn=cmd_init)
 
-    s = sp.add_parser("courses", help="수강과목·게시판 ID 보기")
+    s = sp.add_parser("courses", help="list enrolled courses and their board IDs")
     s.add_argument("--json", action="store_true")
     s.set_defaults(fn=cmd_courses)
 
-    s = sp.add_parser("sweep", help="지난 실행 이후 새 글·과제·자료·성적만 보기")
+    s = sp.add_parser("sweep", help="show only new posts, deadlines, files and grades since the last run")
     s.add_argument("--since", metavar="YYYY-MM-DD")
-    s.add_argument("--download", action="store_true", help="새 강의자료를 과목 폴더 files/ 에 받기")
+    s.add_argument("--download", action="store_true", help="download new course files into each course's files/ folder")
     s.add_argument("--json", action="store_true")
     s.set_defaults(fn=cmd_sweep)
 
-    s = sp.add_parser("read", help="게시글 본문과 첨부 링크 보기")
+    s = sp.add_parser("read", help="print a post and its attachment links")
     s.add_argument("ids", nargs="+", metavar="ID")
-    s.add_argument("--save", action="store_true", help="과목 폴더 notices/ 에 저장")
+    s.add_argument("--save", action="store_true", help="also save it to the course's notices/ folder")
     s.set_defaults(fn=cmd_read)
 
-    s = sp.add_parser("dl", help="첨부파일 받기")
+    s = sp.add_parser("dl", help="download attachments")
     s.add_argument("urls", nargs="+")
     s.add_argument("--to", default=".")
     s.set_defaults(fn=cmd_dl)
 
-    s = sp.add_parser("text", help="pptx/pdf 에서 텍스트 뽑기")
+    s = sp.add_parser("text", help="extract text from a .pptx or .pdf")
     s.add_argument("file")
     s.set_defaults(fn=cmd_text)
 
@@ -147,7 +147,7 @@ def main(argv=None):
     try:
         a.fn(a)
     except (KlmsError, auth.AuthError) as e:
-        sys.exit(f"오류: {e}\n(상태 파일은 건드리지 않았습니다)")
+        sys.exit(f"error: {e}\n(state file left untouched)")
 
 
 if __name__ == "__main__":

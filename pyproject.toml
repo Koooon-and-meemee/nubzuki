@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "nubzuki"
 dynamic = ["version"]
-description = "KAIST KLMS 새 소식 스윕 + 학기 폴더 자동 정리 CLI"
+description = "Sweep KAIST KLMS for new posts, deadlines, files and grades, and set up per-semester course folders"
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "MIT" }
