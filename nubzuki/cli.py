@@ -62,7 +62,7 @@ def cmd_courses(a):
 
 def cmd_sweep(a):
     ws = need_ws()
-    rep = run(Client(), ws, since=a.since, download=a.download,
+    rep = run(Client(), ws, since=a.since, download=a.download, show_all=a.all,
               out=(lambda *_: None) if a.json else print)
     if a.json:
         print(json.dumps(rep, ensure_ascii=False, indent=2))
@@ -82,7 +82,7 @@ def cmd_read(a):
         c = by_board.get(int(bid))
         if a.save and c:
             p = os.path.join(ws.folder(c), "notices", f"{bwid}.md")
-            with open(p, "w") as f:
+            with open(p, "w", encoding="utf-8") as f:
                 f.write(text + ("\n\n" + "\n".join(files) if files else "") + "\n")
             print(f"\n(saved: {p})")
 
@@ -109,6 +109,9 @@ def cmd_text(a):
 
 
 def main(argv=None):
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(errors="replace")
     p = argparse.ArgumentParser(prog="nubzuki", description="Sweep KAIST KLMS for what changed and keep per-semester course folders")
     p.add_argument("--version", action="version", version=__version__)
     sp = p.add_subparsers(dest="cmd", required=True)
@@ -126,6 +129,7 @@ def main(argv=None):
     s = sp.add_parser("sweep", help="show only new posts, deadlines, files and grades since the last run")
     s.add_argument("--since", metavar="YYYY-MM-DD")
     s.add_argument("--download", action="store_true", help="download new course files into each course's files/ folder")
+    s.add_argument("--all", action="store_true", help="on the first run, print everything instead of a summary")
     s.add_argument("--json", action="store_true")
     s.set_defaults(fn=cmd_sweep)
 

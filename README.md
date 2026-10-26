@@ -76,7 +76,7 @@ nubzuki login                                      # paste your cookie manually
 ```
 
 Inside a semester folder, nubzuki uses that semester. Anywhere else, it uses the semester you last ran `init` for.
-The first `sweep` has nothing to compare against, so everything shows up as new. After that, only changes appear.
+The first `sweep` saves a baseline and prints a summary plus posts from the last 7 days (`--all` prints everything). After that, only changes appear.
 
 ## Logging in (cookies)
 
@@ -86,8 +86,19 @@ nubzuki looks in this order and uses the first cookie it finds. It never prints 
 2. `~/.config/nubzuki/cookie`, written by `nubzuki login` with mode 600
 3. Chrome, Edge, Brave, Firefox or Safari through `browser_cookie3`, if installed
 4. macOS + Chrome: decrypted with the "Chrome Safe Storage" Keychain entry (macOS asks for permission the first time)
+5. Firefox on any OS: read directly from the profile's `cookies.sqlite`
 
 For `nubzuki login`, copy the `MoodleSession` value from DevTools → Application → Cookies → `klms.kaist.ac.kr`.
+
+| OS | Works out of the box | Otherwise |
+|---|---|---|
+| macOS | Chrome, Firefox | `nubzuki login` |
+| Linux | Firefox | `pip install "nubzuki[browser]"` for Chrome, or `nubzuki login` |
+| Windows | Firefox | `nubzuki login` |
+
+On Windows, Chrome and Edge (127+) use app-bound encryption, so no other program can read their cookies.
+Either log in to KLMS once in Firefox, or run `nubzuki login` and paste `MoodleSession` from Chrome's DevTools.
+A pasted session lasts until KLMS logs you out; when `sweep` says you are not logged in, paste a fresh one.
 
 ## No false "nothing new"
 

@@ -20,6 +20,15 @@ def totext(t, cell_sep=" | "):
     return re.sub(r"\n{3,}", "\n\n", t).strip()
 
 
+def table_rows(t):
+    rows = []
+    for r in re.findall(r"(?is)<tr[^>]*>(.*?)</tr>", t):
+        cells = [strip(c) for c in re.findall(r"(?is)<t[dh][^>]*>(.*?)</t[dh]>", r)]
+        if any(cells):
+            rows.append(cells)
+    return rows
+
+
 _A = "{http://schemas.openxmlformats.org/drawingml/2006/main}t"
 
 

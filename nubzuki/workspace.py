@@ -8,15 +8,25 @@ CONFIG_FILE = os.path.join(CONFIG_DIR, "config.json")
 META = ".nubzuki"
 
 
+def read_json(path):
+    with open(path, encoding="utf-8") as f:
+        return json.load(f)
+
+
+def write_json(path, data, **kw):
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, **kw)
+
+
 def load_config():
     if os.path.exists(CONFIG_FILE):
-        return json.load(open(CONFIG_FILE))
+        return read_json(CONFIG_FILE)
     return {}
 
 
 def save_config(cfg):
     os.makedirs(CONFIG_DIR, exist_ok=True)
-    json.dump(cfg, open(CONFIG_FILE, "w"), ensure_ascii=False, indent=2)
+    write_json(CONFIG_FILE, cfg, indent=2)
 
 
 def safe(name):
@@ -29,7 +39,7 @@ class Workspace:
         self.meta = os.path.join(path, META)
         self.info_file = os.path.join(self.meta, "workspace.json")
         self.state_file = os.path.join(self.meta, "state.json")
-        self.info = json.load(open(self.info_file)) if os.path.exists(self.info_file) else {}
+        self.info = read_json(self.info_file) if os.path.exists(self.info_file) else {}
 
     @property
     def courses(self):
@@ -40,18 +50,18 @@ class Workspace:
 
     def save(self):
         os.makedirs(self.meta, exist_ok=True)
-        json.dump(self.info, open(self.info_file, "w"), ensure_ascii=False, indent=2)
+        write_json(self.info_file, self.info, indent=2)
 
     def load_state(self):
         if os.path.exists(self.state_file):
-            return json.load(open(self.state_file))
+            return read_json(self.state_file)
         return {}
 
     def save_state(self, state):
         os.makedirs(self.meta, exist_ok=True)
         if os.path.exists(self.state_file):
             os.replace(self.state_file, self.state_file + ".bak")
-        json.dump(state, open(self.state_file, "w"), ensure_ascii=False)
+        write_json(self.state_file, state)
 
 
 def find(start=None):

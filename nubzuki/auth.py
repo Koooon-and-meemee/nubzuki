@@ -18,7 +18,7 @@ class AuthError(RuntimeError):
 def save_cookie(value):
     os.makedirs(CONFIG_DIR, exist_ok=True)
     fd = os.open(COOKIE_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w") as f:
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
         f.write(value.strip() + "\n")
 
 
@@ -27,7 +27,8 @@ def _from_env_or_file():
     if v:
         return v, "env"
     if os.path.exists(COOKIE_FILE):
-        v = open(COOKIE_FILE).read().strip()
+        with open(COOKIE_FILE, encoding="utf-8") as f:
+            v = f.read().strip()
         if v:
             return v, "file"
     return None, None
@@ -126,15 +127,75 @@ def _from_macos_chrome():
     return best[1] if best else None
 
 
+def _firefox_roots():
+    if sys.platform == "win32":
+        base = os.environ.get("APPDATA", "")
+        return [os.path.join(base, "Mozilla", "Firefox", "Profiles")]
+    if sys.platform == "darwin":
+        return [os.path.expanduser("~/Library/Application Support/Firefox/Profiles")]
+    return [os.path.expanduser("~/.mozilla/firefox"),
+            os.path.expanduser("~/snap/firefox/common/.mozilla/firefox")]
+
+
+def _firefox_dbs():
+    out = []
+    for root in _firefox_roots():
+        if not os.path.isdir(root):
+            continue
+        for d in os.listdir(root):
+            db = os.path.join(root, d, "cookies.sqlite")
+            if os.path.exists(db):
+                out.append(db)
+    return out
+
+
+def _read_firefox(db):
+    with tempfile.TemporaryDirectory() as td:
+        tmp = os.path.join(td, "cookies.sqlite")
+        shutil.copy2(db, tmp)
+        if os.path.exists(db + "-wal"):
+            shutil.copy2(db + "-wal", tmp + "-wal")
+        con = sqlite3.connect(tmp)
+        rows = con.execute(
+            "select name, value, lastAccessed from moz_cookies where host in (?, ?)",
+            (DOMAIN, "." + DOMAIN)).fetchall()
+        con.close()
+    return rows
+
+
+def _from_firefox():
+    best = None
+    for db in _firefox_dbs():
+        try:
+            rows = _read_firefox(db)
+        except (sqlite3.Error, OSError):
+            continue
+        if not any(n == "MoodleSession" for n, _, _ in rows):
+            continue
+        last = max(la or 0 for _, _, la in rows)
+        if not best or last > best[0]:
+            best = (last, "; ".join(f"{n}={v}" for n, v, _ in rows))
+    return best[1] if best else None
+
+
+def _hint():
+    if sys.platform == "win32":
+        return ("  - On Windows, Chrome and Edge encrypt cookies so other programs cannot read them.\n"
+                "    Log in to klms.kaist.ac.kr in Firefox, or\n"
+                "  - copy your MoodleSession value from the browser and save it with `nubzuki login`.")
+    return ("  - Log in to klms.kaist.ac.kr in Chrome or Firefox and run again, or\n"
+            "  - save your MoodleSession value with `nubzuki login`.")
+
+
 def cookie_header():
     v, _ = _from_env_or_file()
     if v:
         return v
-    for fn in (_from_browser_cookie3, _from_macos_chrome):
-        v = fn()
+    for fn in (_from_browser_cookie3, _from_macos_chrome, _from_firefox):
+        try:
+            v = fn()
+        except AuthError:
+            v = None
         if v:
             return v
-    raise AuthError(
-        "No KLMS cookie found.\n"
-        "  - Log in to klms.kaist.ac.kr in your browser and run again, or\n"
-        "  - save your MoodleSession value with `nubzuki login`.")
+    raise AuthError("No KLMS cookie found.\n" + _hint())
