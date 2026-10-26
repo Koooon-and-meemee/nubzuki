@@ -1,83 +1,84 @@
 <h1 align="center">nubzuki</h1>
 
-<p align="center">An unofficial CLI that tells you <b>only what changed</b> on KAIST KLMS since you last looked,<br>and keeps a tidy folder for every course you take.</p>
+<p align="center"><b>KAIST KLMS for you and your AI agent.</b><br>
+Tap a number on your phone once, then ask what's new, what's due, and what the lecture notes say.</p>
 
 ---
 
-Named after Nubzuki, KAIST's mascot.
+```
+$ nubzuki sweep
+========================================================================
+■ Boards
+========================================================================
 
-> This is an **unofficial** tool with no affiliation to KAIST. Use it with your own account, for personal use only.
+[MAS.10002 미적분학Ⅱ] Notices (board=...)
+   NEW [2026-10-26] bwid=...  중간고사&Part II Exam 클레임 안내
+
+========================================================================
+■ Assignments, quizzes, files, grades
+========================================================================
+
+[PH.10042 일반물리학 II] course=...
+  <new files>
+    Lecture Note #9 Chap29.pdf  → PH.10042/files/Lecture Note #9 Chap29.pdf
+[HSS.20117 스타트업 101] course=...
+  <assign>
+    9주차 | 중간발표 과제물 제출 | 2026년 10월 28일(수요일) 오후 11:59 | 제출물 없음
+```
+
+nubzuki shows **only what changed** on KLMS since you last looked: new posts, deadline changes,
+new course files and new grades. It finds your courses and boards by itself and keeps one folder per course,
+so you, Claude Code, Cursor or any agent that can run a shell command can work from the same place.
+
+> Unofficial, not affiliated with KAIST. Use it with your own account, for personal use.
 > It never sends more than two requests at a time. Please don't run it in a tight loop.
 
-## What it does
-
-- **Boards**: new posts on each course's Notices, Q&A and free board
-- **Assignments and quizzes**: courses whose deadline table changed
-- **Course files**: newly uploaded files, optionally downloaded straight into the course folder
-- **Grades**: new rows on your grade report
-- **Folders**: creates a layout like `~/KAIST/2026F/CS.10001/{files,notices}` for you
-
-You never type a course ID or board ID. nubzuki reads the current semester and your enrolled courses
-from the KLMS dashboard and finds each course's boards on its page.
-
-## Install
+## Quick start
 
 Python 3.9+, no required dependencies.
 
 ```sh
 pipx install git+https://github.com/Koooon-and-meemee/nubzuki
-# or
-pip install git+https://github.com/Koooon-and-meemee/nubzuki
-# to read browser cookies through browser_cookie3
-pip install "nubzuki[browser] @ git+https://github.com/Koooon-and-meemee/nubzuki"
+
+nubzuki login --id <your KAIST ID>   # tap the number shown, in the KAIST app
+nubzuki init                         # creates ~/KAIST/2026F/<course>/{files,notices}
+nubzuki sweep                        # what changed since last time
 ```
 
-`nubzuki text` needs `pdftotext` for PDFs (`brew install poppler` or `apt install poppler-utils`).
+The first `sweep` saves a baseline and prints a summary plus posts from the last 7 days (`--all` prints everything).
+After that, only changes appear. When the session expires, `sweep` sends a new request to your phone by itself.
 
-## Getting started
+## Use it with your AI
 
-1. Log in to https://klms.kaist.ac.kr in your browser.
-2. Create your semester folder:
+**Claude Code**: install the skill, then just say "check KLMS" or "what's due this week?".
+Claude Code sweeps, reads the new posts, extracts text from attached slides and summarizes.
 
 ```sh
-nubzuki init                  # defaults to ~/KAIST (asks once)
-nubzuki init --root ~/school  # somewhere else
+mkdir -p ~/.claude/skills/nubzuki
+curl -fsSL https://raw.githubusercontent.com/Koooon-and-meemee/nubzuki/main/skills/nubzuki/SKILL.md \
+  -o ~/.claude/skills/nubzuki/SKILL.md
 ```
 
-```
-~/KAIST/2026F/
-├── .nubzuki/          # course list and last sweep state (do not share)
-├── CS.10001/
-│   ├── files/         # course files
-│   └── notices/       # saved posts
-├── MAS.10001/
-└── ...
-```
+**Any other agent** (Cursor, Codex, Gemini CLI, scripts): every command prints plain text, and `sweep --json`
+returns structured results. Course files land in `<course>/files/`, and `nubzuki text` turns PDF and PPTX into text,
+so an agent can read lecture notes without you attaching anything.
 
-When a new semester starts, run `nubzuki init` again and you get a new folder such as `2027S/`.
-Running it again in the same semester keeps existing folders and only adds new courses.
-Semester suffixes: `S` Spring, `U` Summer, `F` Fall, `W` Winter.
+Things to ask:
+- "Anything new on KLMS? Download new files and summarize them."
+- "List every deadline in the next 7 days."
+- "Read the latest Calculus notice and tell me when and where the claim session is."
+- "Summarize Chapter 9 from the chemistry lecture notes."
 
-## Usage
+## What it does
 
-```sh
-nubzuki sweep                   # only what changed since the last run
-nubzuki sweep --download        # also download new course files into <course>/files
-nubzuki sweep --since 2026-10-01
-nubzuki sweep --json            # for scripts and agents
+- **Boards**: new posts on each course's Notices, Q&A and free board
+- **Assignments and quizzes**: new or changed rows in each course's deadline table
+- **Course files**: newly uploaded files, optionally downloaded into the course folder
+- **Grades**: new rows on your grade report
+- **Folders**: one folder per semester and course, created from your KLMS dashboard
 
-nubzuki read <board> <bwid> [<board> <bwid> ...]   # post body + attachment links
-nubzuki read <board> <bwid> --save                 # save to <course>/notices/<bwid>.md
-nubzuki dl <url> [...] --to CS.10001/files         # download attachments
-nubzuki text lecture.pptx                          # slide text + speaker notes
-nubzuki text lecture.pdf
-nubzuki courses                                    # course IDs and board IDs
-nubzuki login                                      # log in by tapping a number in the KAIST app
-nubzuki login --cookie                             # paste a MoodleSession cookie instead
-```
-
-Inside a semester folder, nubzuki uses that semester. Anywhere else, it uses the semester you last ran `init` for.
-The first `sweep` saves a baseline and prints a summary plus posts from the last 7 days (`--all` prints everything). After that, only changes appear.
+You never type a course ID or board ID. nubzuki reads the current semester and your enrolled courses
+from the dashboard and finds each course's boards on its page.
 
 ## Logging in
 
@@ -115,30 +116,70 @@ It never prints the cookie.
 On Windows, Chrome and Edge (127+) use app-bound encryption, so no other program can read their cookies.
 Use phone login, Firefox, or `nubzuki login --cookie` with `MoodleSession` copied from DevTools.
 
+## Commands
+
+```sh
+nubzuki login [--id ID]                            # phone login (ID is remembered)
+nubzuki login --cookie                             # paste a MoodleSession cookie instead
+nubzuki init [--root DIR]                          # semester folder + one folder per course
+nubzuki courses [--json]                           # course IDs and board IDs
+
+nubzuki sweep                                      # only what changed since the last run
+nubzuki sweep --download                           # also download new course files
+nubzuki sweep --since 2026-10-01
+nubzuki sweep --json                               # for scripts and agents
+
+nubzuki read <board> <bwid> [<board> <bwid> ...]   # post body + attachment links
+nubzuki read <board> <bwid> --save                 # save to <course>/notices/<bwid>.md
+nubzuki dl <url> [...] --to CS.10001/files         # download attachments
+nubzuki text lecture.pdf                           # PDF, PPTX (with speaker notes), TXT, MD
+```
+
+`nubzuki text` needs `pdftotext` for PDFs (`brew install poppler` or `apt install poppler-utils`).
+
+## Folder layout
+
+```
+~/KAIST/2026F/
+├── .nubzuki/          # course list and last sweep state (contains grades, do not share)
+├── CS.10001/
+│   ├── files/         # course files
+│   └── notices/       # saved posts
+├── MAS.10002/
+└── ...
+```
+
+Inside a semester folder, nubzuki uses that semester. Anywhere else, it uses the semester you last ran `init` for.
+Run `nubzuki init` again when a new semester starts to get `2027S/` and so on.
+Running it again in the same semester keeps existing folders and only adds new courses.
+Semester suffixes: `S` Spring, `U` Summer, `F` Fall, `W` Winter.
+
 ## No false "nothing new"
 
 Two traps came up while scraping KLMS (Moodle), and nubzuki guards against both.
 
 - **Expired session**: KLMS still answers with HTTP 200 and a login page, which reads like "0 new posts".
   nubzuki stops as soon as it sees a page that isn't logged in, and **does not overwrite your saved state**.
-  Log in again and rerun; anything you missed still shows up.
 - **Session lock**: Moodle serializes requests per session. Too many at once and you get an
   `Unable to obtain session lock` page, which also looks like "0 new posts".
-  nubzuki caps concurrency at two and waits and retries on a lock. Your session is still valid, so there is no need to log in again.
+  nubzuki caps concurrency at two and waits and retries on a lock.
 
-## Claude Code skill
+## Privacy
 
-Ask Claude Code to "check KLMS" and it will sweep, read new posts, extract attachment text and summarize.
+- Everything runs on your machine. Nothing is sent anywhere except KLMS and KAIST SSO.
+- No password is sent or stored. The session cookie is saved with mode 600 and never printed.
+- `.nubzuki/state.json` contains your grades. Leave it out when you share a folder or put it in git.
+
+## Install options
 
 ```sh
-git clone https://github.com/Koooon-and-meemee/nubzuki
-cp -r nubzuki/skills/nubzuki ~/.claude/skills/
+pipx install git+https://github.com/Koooon-and-meemee/nubzuki
+pip install git+https://github.com/Koooon-and-meemee/nubzuki
+pip install "nubzuki[browser] @ git+https://github.com/Koooon-and-meemee/nubzuki"   # browser_cookie3 support
 ```
 
-## Notes
-
-- `.nubzuki/state.json` contains your grades. Leave it out when you share a semester folder or put it in git.
-- If the KLMS layout changes, parsing may break. Please open an issue.
+Tested on macOS, Linux and Windows with Python 3.9 and 3.13.
+If the KLMS layout changes and parsing breaks, please open an issue.
 
 ## License
 
@@ -146,4 +187,4 @@ MIT
 
 ---
 
-<sub>This project is not affiliated with or endorsed by KAIST.</sub>
+<sub>Named after Nubzuki, KAIST's mascot. This project is not affiliated with or endorsed by KAIST.</sub>
