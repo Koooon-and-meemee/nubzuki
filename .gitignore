@@ -1,0 +1,12 @@
+cookie
+cookies.db
+key.txt
+state.json
+state.json.bak
+.nubzuki/
+__pycache__/
+*.egg-info/
+.venv/
+dist/
+build/
+.DS_Store
