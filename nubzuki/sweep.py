@@ -8,11 +8,13 @@ from collections import Counter
 from . import board, workspace
 from .client import KlmsError, filename_of
 from .discover import semester_of
+from .portal import Portal, PortalExpired
 from .text import table_rows
 
 GRADE_SKIP = ("성적 항목", "합계", "Grade item", "Course total")
 TABLE_HEAD = ("No", "번호", "주차", "Topic", "Week")
 RECENT_DAYS = 7
+PORTAL_KEEP = 300
 BOARD_LABEL = {"notice": "Notices", "qna": "Q&A", "free": "Board"}
 
 
@@ -49,6 +51,21 @@ def grade_rows(client, cid):
         if not any(k in line for k in GRADE_SKIP):
             rows.append(line[:200])
     return rows
+
+
+def grade_table(client, cid):
+    h = client.get(f"/grade/report/user/index.php?id={cid}")
+    columns, rows = [], []
+    for cells in table_rows(h):
+        if not cells or not cells[0]:
+            continue
+        if cells[0] in GRADE_SKIP[::2]:
+            columns = cells
+        elif len(cells) > 1:
+            rows.append(cells)
+        else:
+            rows.append([cells[0]])
+    return columns, rows
 
 
 def display_names(urls):
@@ -96,7 +113,20 @@ def new_semester(dash, ws):
     return sem if ws.info.get("semester") and sem != ws.info["semester"] else None
 
 
-def run(client, ws, since=None, download=False, show_all=False, save=True, out=print, progress=None):
+def portal_changes(old, new, report, portal):
+    pc = portal or Portal()
+    if "portal" not in old:
+        rows = pc.recents()
+        new["portal"] = [r["id"] for r in rows]
+        report["portal_note"] = f"Started following portal notices: {len(rows)} recent ones saved as already seen."
+        return []
+    fresh = pc.since(set(old["portal"]))
+    new["portal"] = ([r["id"] for r in fresh] + old["portal"])[:PORTAL_KEEP]
+    report["portal"] = fresh
+    return fresh
+
+
+def run(client, ws, since=None, download=False, show_all=False, save=True, out=print, progress=None, portal=None):
     """Compare KLMS with the last saved state. Requests go one at a time:
     Moodle locks the session per request, so running two at once is no faster."""
     step = progress or (lambda *_: None)
@@ -108,19 +138,19 @@ def run(client, ws, since=None, download=False, show_all=False, save=True, out=p
     say = (lambda *_: None) if first else out
     counts = Counter()
     new = {}
-    report = {"posts": [], "files": [], "grades": [], "deadlines": []}
+    report = {"posts": [], "files": [], "grades": [], "deadlines": [], "portal": []}
 
     jobs = [(c, kind, bid) for c in ws.courses for kind, bid in c.get("boards", {}).items()]
     results = []
-    for i, (_, _, bid) in enumerate(jobs, 1):
+    for i, (_, kind, bid) in enumerate(jobs, 1):
         step(f"boards {i}/{len(jobs)}")
-        results.append(board.posts(client, bid))
+        results.append(board.posts(client, bid, hide_authors=kind in board.STUDENT_BOARDS))
 
-    head = {"boards": False, "rest": False}
+    head = {"boards": False, "rest": False, "portal": False}
 
     def section(name, title):
         if not head[name]:
-            out(("\n" if name == "rest" else "") + "=" * 72 + f"\n■ {title}\n" + "=" * 72)
+            out(("\n" if name != "boards" else "") + "=" * 72 + f"\n■ {title}\n" + "=" * 72)
             head[name] = True
     for (c, kind, bid), rows in zip(jobs, results):
         key = f"board:{bid}"
@@ -184,7 +214,23 @@ def run(client, ws, since=None, download=False, show_all=False, save=True, out=p
             say(f"\n[{c['code']} {c['name']}] course={cid}")
             say("\n".join(chunks))
 
-    if not first and not any(report.values()):
+    if portal is not False:
+        step("portal")
+        try:
+            fresh = portal_changes(old, new, report, portal)
+        except (PortalExpired, KlmsError) as e:
+            if "portal" in old:
+                new["portal"] = old["portal"]
+            fresh = []
+            report["portal_error"] = (f"{e} Portal notices were not checked. "
+                                      "Log in again: one phone login covers KLMS and the portal.")
+        if fresh and not first:
+            section("portal", "KAIST portal")
+            out("\n".join(f"   NEW [{r['date']}] id={r['id']}  [{r['board']}] {r['title']}" for r in fresh))
+        if report.get("portal_error"):
+            out("\n" + report["portal_error"])
+
+    if not first and not any(report[k] for k in ("posts", "files", "grades", "deadlines", "portal")):
         out("Nothing new since the last run.")
     sem = new_semester(dash, ws)
     if sem:

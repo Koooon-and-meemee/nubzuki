@@ -59,6 +59,8 @@ Use [Codex](https://developers.openai.com/codex) instead. You sign in with your 
 - 이번 주 마감 전부 날짜순으로 알려줘
 - 미적 최신 공지 읽고 클레임 언제 어디서 하는지 알려줘
 - 새로 올라온 파일 다 받아서 요약해줘
+- 미적 성적표 전체 보여주고 Part II 합계 계산해줘
+- 포탈에 새로 올라온 장학·근로 공지 중에 나한테 해당되는 거 있어?
 
 Course nicknames like 일생 or 미적 are fine. The AI matches them against your course list.
 It reads post bodies and attachments too, because that's usually where the room number or exam scope is.
@@ -83,20 +85,29 @@ with nubzuki's tools allowed so you don't have to approve every call from your p
 <p align="center"><img src="assets/demo-sweep.svg" alt="nubzuki sweep output" width="760"></p>
 
 `nubzuki sweep` shows what changed since the last time you ran it: new posts on Notices, Q&A and the free board,
-changed rows in the assignment and quiz tables, newly uploaded course files and new grades.
+changed rows in the assignment and quiz tables, newly uploaded course files, new grades
+and new notices on the KAIST portal (portal.kaist.ac.kr).
 `--download` also saves the new files into each course's `files/` folder.
 The first run saves a baseline and only shows posts from the last 7 days.
 A full sweep takes a minute or so, because KLMS serves about one page a second.
+
+The phone login also opens a portal session, so portal notices need no extra step.
+If only the portal session has run out, `sweep` still checks KLMS and tells you to log in again.
 
 You never type a course or board ID. nubzuki reads your courses off the dashboard.
 When KLMS moves on to a new semester, `sweep` tells you, and `nubzuki init` switches over.
 
 ## Privacy
 
-nubzuki runs on your computer and only talks to `klms.kaist.ac.kr` and `sso.kaist.ac.kr`. There's no server and no analytics.
+nubzuki runs on your computer and only talks to `klms.kaist.ac.kr`, `portal.kaist.ac.kr` and `sso.kaist.ac.kr`.
+There's no server and no analytics.
 It never sees your password. Login goes through KAIST's own easy login, so all you do is tap a number on your phone.
-The session cookie is stored in `~/.config/nubzuki/cookie` (mode 600). nubzuki won't send it to any other host,
-even if a post links somewhere else. The MCP tools can only read and write inside your semester folder.
+The session cookies are stored in `~/.config/nubzuki/cookie` and `portal_cookie` (mode 600).
+nubzuki won't send either to any other host, even if a post links somewhere else. The MCP tools can only read and write inside your semester folder.
+
+Q&A and free-board posts are written by other students. Through the MCP tools their names are masked (홍O동),
+and their bodies aren't handed to the AI at all unless you run `nubzuki privacy --student-posts on`.
+Titles still show up, so you know something was asked.
 
 `.nubzuki/state.json` in the semester folder has your grades in it. Don't commit it or share it.
 
@@ -121,6 +132,10 @@ nubzuki sweep --json
 
 nubzuki read <board> <bwid> [<board> <bwid> ...]   # post body + attachment links
 nubzuki read <board> <bwid> --save                 # save to <course>/notices/<bwid>.md
+nubzuki grades 미적                                # the whole gradebook, totals included
+nubzuki portal [--limit 30]                        # latest KAIST portal notices
+nubzuki portal <id>                                # one portal notice with attachment names
+nubzuki privacy --student-posts on|off             # let the MCP tools read Q&A and free-board bodies
 nubzuki dl <url> [...] --to CS.10001/files         # download attachments
 nubzuki text lecture.pdf                           # PDF, PPTX (with speaker notes), DOCX, TXT, MD
 

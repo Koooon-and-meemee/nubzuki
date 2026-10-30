@@ -35,7 +35,7 @@ class _KeepCookieOnHost(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         new = super().redirect_request(req, fp, code, msg, headers, newurl)
         u = urllib.parse.urlsplit(newurl)
-        if new is not None and (u.hostname != HOST or u.scheme != "https"):
+        if new is not None and (u.hostname != urllib.parse.urlsplit(req.full_url).hostname or u.scheme != "https"):
             new.remove_header("Cookie")
         return new
 

@@ -6,12 +6,14 @@ import time
 import urllib.parse
 import urllib.request
 
-from . import seed
+from . import auth, seed
 from .auth import CONFIG_DIR
 
 SSO = "https://sso.kaist.ac.kr"
 KLMS = "https://klms.kaist.ac.kr"
+PORTAL = "https://portal.kaist.ac.kr"
 AGENT = "kaist-prod-klms"
+PORTAL_AGENT = "kaist-prod-portal"
 UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/140.0 Safari/537.36")
 LAST_PUSH = os.path.join(CONFIG_DIR, "last_push")
@@ -79,14 +81,16 @@ class _Session:
         except ValueError:
             raise SSOError(f"Unexpected response from KAIST SSO at {path}")
 
+    def cookies_for(self, host):
+        return "; ".join(f"{c.name}={c.value}" for c in self.jar if c.domain.lstrip(".") == host)
+
     def klms_cookie(self):
-        parts = [f"{c.name}={c.value}" for c in self.jar if c.domain.lstrip(".") == "klms.kaist.ac.kr"]
-        return "; ".join(parts)
+        return self.cookies_for("klms.kaist.ac.kr")
 
 
-def _follow_forms(s, url, html):
+def _follow_forms(s, url, html, stop=KLMS):
     for _ in range(5):
-        if url.startswith(KLMS):
+        if url.startswith(stop):
             return url
         m = re.search(r'(?is)<form[^>]*action="(https?://[^"]+|/[^"]+)"[^>]*>(.*?)</form>', html)
         if not m:
@@ -148,4 +152,22 @@ def login(user_id, on_number=print, timeout=TIMEOUT):
     cookie = s.klms_cookie()
     if "MoodleSession=" not in cookie:
         raise SSOError("Logged in to KAIST SSO but KLMS did not start a session.")
+    try:
+        portal = portal_session(s)
+    except (OSError, ValueError):
+        portal = None
+    if portal:
+        auth.save_cookie(portal, auth.PORTAL_COOKIE_FILE)
     return cookie
+
+
+def portal_session(s):
+    s.referer = f"{PORTAL}/common/login/login.do"
+    s.request(s.referer)
+    url, html = s.post("/auth/user/login/link", {
+        "user_id": "", "agt_id": PORTAL_AGENT, "agt_url": PORTAL, "lang": "ko",
+        "form_type": "IDPW", "add_param": "add_param_value"})
+    _follow_forms(s, url, html, stop=PORTAL)
+    s.request(f"{PORTAL}/common/login/login.do?returnUrl=/")
+    cookie = s.cookies_for("portal.kaist.ac.kr")
+    return cookie if "JSESSIONID=" in cookie else None

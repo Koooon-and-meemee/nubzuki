@@ -4,9 +4,24 @@ import re
 from .text import strip, totext
 
 ROW = re.compile(r'bwid=(\d+)[^>]*>(.*?)</a>(.*?)(\d{4}-\d{2}-\d{2})', re.S)
+STUDENT_BOARDS = ("qna", "free")
+AUTHOR_LINE = re.compile(r"((?:작성자|Author)\s*:\s*)([^\n]+)")
 
 
-def posts(client, bid):
+def mask(name):
+    name = name.strip()
+    if not name:
+        return name
+    if re.fullmatch(r"[가-힣]{2,5}", name):
+        return name[0] + "O" * max(1, len(name) - 2) + (name[-1] if len(name) > 2 else "")
+    return " ".join(w[0] + "*" * (len(w) - 1) for w in name.split())
+
+
+def mask_authors(text):
+    return AUTHOR_LINE.sub(lambda m: m.group(1) + mask(m.group(2)), text)
+
+
+def posts(client, bid, hide_authors=False):
     h = client.get(f"/mod/courseboard/view.php?id={bid}&perpage=50")
     out, seen = [], set()
     for bwid, title, mid, date in ROW.findall(h):
@@ -14,8 +29,9 @@ def posts(client, bid):
         if not t or bwid in seen:
             continue
         seen.add(bwid)
+        author = strip(mid).strip("|").strip()[-20:]
         out.append({"bwid": int(bwid), "title": t,
-                    "author": strip(mid).strip("|").strip()[-20:], "date": date})
+                    "author": mask(author) if hide_authors else author, "date": date})
     return out
 
 

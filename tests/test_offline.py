@@ -150,7 +150,7 @@ class Mcp(unittest.TestCase):
         self.assertEqual([m["id"] for m in out], [1, 2, 3])
         self.assertEqual(out[0]["result"]["serverInfo"]["name"], "nubzuki")
         names = {t["name"] for t in out[1]["result"]["tools"]}
-        self.assertTrue({"sweep", "read_post", "file_text", "login"} <= names)
+        self.assertTrue({"sweep", "read_post", "file_text", "login", "grades", "portal_notices", "read_portal"} <= names)
         self.assertEqual(out[2]["error"]["code"], -32601)
 
     def test_paths_stay_in_workspace(self):
@@ -185,6 +185,7 @@ class Mcp(unittest.TestCase):
             self.assertEqual(workspace.load_config()["kaist_id"], "student")
             # a live session means no second push to the phone
             srv.connect = mock.Mock()
+            srv.portal_alive = mock.Mock(return_value=True)
             self.assertEqual(srv.call("login", {})["status"], "logged_in")
             save.assert_called_once()
 
@@ -417,6 +418,93 @@ class Text(unittest.TestCase):
                 mock.patch.object(text.subprocess, "run", return_value=scanned):
             with self.assertRaises(text.TextError):
                 text.file_text("scan.pdf")
+
+
+class Privacy(unittest.TestCase):
+    def test_mask(self):
+        from nubzuki import board
+        self.assertEqual(board.mask("김민준"), "김O준")
+        self.assertEqual(board.mask("김철"), "김O")
+        self.assertEqual(board.mask("남궁민수"), "남OO수")
+        self.assertEqual(board.mask("Jane Doe"), "J*** D**")
+        self.assertEqual(board.mask_authors("제목\n작성자\n:\n홍길동\n본문"), "제목\n작성자\n:\n홍O동\n본문")
+
+    def test_student_board_posts_need_opt_in(self):
+        from nubzuki import board, mcp
+        with tempfile.TemporaryDirectory() as td, \
+                mock.patch.object(workspace, "CONFIG_FILE", os.path.join(td, "cfg.json")), \
+                mock.patch.object(workspace, "CONFIG_DIR", td):
+            ws = workspace.Workspace(td)
+            ws.info = {"courses": [{"id": 1, "code": "CS.10001", "section": "A", "name": "Intro", "folder": "CS",
+                                    "boards": {"notice": 10, "qna": 11}}]}
+            srv = mcp.Server()
+            srv.connect = mock.Mock()
+            with mock.patch.object(workspace, "find", return_value=ws), \
+                    mock.patch.object(board, "article", return_value=("작성자\n:\n홍길동\nQ", [])):
+                self.assertIn("홍길동", srv.call("read_post", {"board": 10, "bwid": 1})["text"])
+                with self.assertRaises(mcp.ToolError):
+                    srv.call("read_post", {"board": 11, "bwid": 2})
+                workspace.save_config({"student_posts": True})
+                self.assertIn("홍O동", srv.call("read_post", {"board": 11, "bwid": 2})["text"])
+
+
+class Grades(unittest.TestCase):
+    def test_table(self):
+        from nubzuki import sweep
+        html = ("<table><tr><th>성적 항목</th><th>성적</th><th>범위</th></tr><tr><td>Part II Exam</td></tr>"
+                "<tr><td>Part II 1-(a)</td><td>4.00</td><td>0–10</td></tr>"
+                "<tr><td>강좌 합계</td><td>-</td><td>0–540</td></tr></table>")
+        cl = mock.Mock()
+        cl.get.return_value = html
+        cols, rows = sweep.grade_table(cl, 1)
+        self.assertEqual(cols, ["성적 항목", "성적", "범위"])
+        self.assertEqual(rows, [["Part II Exam"], ["Part II 1-(a)", "4.00", "0–10"], ["강좌 합계", "-", "0–540"]])
+
+
+PORTAL_ITEM = {"pstNo": 5, "pstTtl": "근로장학생 모집", "boardNm": "근로장학생", "pstWrtrNm": "직원",
+               "pstWrtrDeptNm": "예술융합센터", "regDt": "2026.10.30 15:21:49", "atchFileCnt": 1, "inqCnt": 3,
+               "delYn": "N", "loginId": "me"}
+
+
+class Portal(unittest.TestCase):
+    def test_summary_and_detail(self):
+        from nubzuki import portal
+        s = portal.summary(PORTAL_ITEM)
+        self.assertEqual((s["id"], s["date"], s["board"]), (5, "2026-10-30 15:21", "근로장학생"))
+        self.assertNotIn("loginId", s)
+        d = portal.detail({**PORTAL_ITEM, "pstCn": "<p>모집 인원 : 1명</p><p>마감 11/6</p>",
+                           "boardAtchList": [{"atchFileNm": "a.docx", "atchFileSizeFormat": "18.5KB"}]})
+        self.assertEqual(d["text"], "모집 인원 : 1명\n마감 11/6")
+        self.assertEqual(d["attachments"], [{"name": "a.docx", "size": "18.5KB"}])
+
+    def test_expired_session(self):
+        from nubzuki import portal
+        err = urllib.error.HTTPError("https://portal.kaist.ac.kr/x", 401, "", {}, io.BytesIO(b"<html>"))
+        with mock.patch.object(portal._opener, "open", side_effect=err):
+            with self.assertRaises(portal.PortalExpired):
+                portal.Portal(cookie="JSESSIONID=x").recents()
+        with mock.patch.object(portal.auth, "portal_cookie", return_value=None):
+            with self.assertRaises(portal.PortalExpired):
+                portal.Portal()
+
+    def test_since_stops_at_seen(self):
+        from nubzuki import portal
+        pc = portal.Portal(cookie="JSESSIONID=x")
+        pages = {1: [{"id": i} for i in (9, 8, 7)], 2: [{"id": i} for i in (6, 5, 4)]}
+        pc.recents = lambda n, p: pages.get(p, [])
+        self.assertEqual([r["id"] for r in pc.since({5})], [9, 8, 7, 6])
+
+    def test_sweep_baseline_then_new(self):
+        from nubzuki import sweep
+        pc = mock.Mock()
+        pc.recents.return_value = [{"id": 2}, {"id": 1}]
+        new, report = {}, {"portal": []}
+        self.assertEqual(sweep.portal_changes({}, new, report, pc), [])
+        self.assertEqual(new["portal"], [2, 1])
+        pc.since.return_value = [{"id": 3}]
+        new, report = {}, {"portal": []}
+        self.assertEqual(sweep.portal_changes({"portal": [2, 1]}, new, report, pc), [{"id": 3}])
+        self.assertEqual(new["portal"], [3, 2, 1])
 
 
 class State(unittest.TestCase):

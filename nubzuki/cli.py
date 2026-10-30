@@ -7,7 +7,8 @@ import sys
 from . import __version__, auth, board, sso, workspace
 from .client import Client, KlmsError, SessionExpired, filename_of
 from .discover import SEMESTER_NAME, discover
-from .sweep import run
+from .portal import Portal
+from .sweep import grade_table, run
 from .text import TextError, file_text
 
 
@@ -162,6 +163,43 @@ def cmd_read(a):
             print(f"\n(saved: {p})")
 
 
+def cmd_grades(a):
+    ws = need_ws()
+    hits = ws.match(a.course)
+    if not hits:
+        sys.exit(f"No course matches {a.course!r}. Try `nubzuki courses`.")
+    cl = connect()
+    for c in hits:
+        columns, rows = grade_table(cl, c["id"])
+        print(f"\n[{c['code']} {c['section']} {c['name']}]")
+        if columns:
+            print("  " + " | ".join(columns))
+        for r in rows:
+            print("  " + " | ".join(r))
+
+
+def cmd_portal(a):
+    pc = Portal()
+    if a.id:
+        p = pc.post(a.id)
+        print(f"[{p['board']}] {p['title']}\n{p['dept']} · {p['date']}\n{p['url']}\n\n{p['text']}")
+        for f in p["attachments"]:
+            print(f"  📎 {f['name']} ({f['size']})")
+        return
+    for r in pc.recents(a.limit):
+        clip = f"  📎{r['attachments']}" if r["attachments"] else ""
+        print(f"  [{r['date']}] id={r['id']}  [{r['board']}] {r['title']}{clip}")
+
+
+def cmd_privacy(a):
+    cfg = workspace.load_config()
+    if a.student_posts:
+        cfg["student_posts"] = a.student_posts == "on"
+        workspace.save_config(cfg)
+    state = "on" if cfg.get("student_posts") else "off"
+    print(f"student posts (Q&A and free-board bodies through the MCP tools): {state}")
+
+
 def cmd_dl(a):
     cl = connect()
     os.makedirs(a.to, exist_ok=True)
@@ -240,6 +278,19 @@ def main(argv=None):
     s.add_argument("ids", nargs="+", metavar="ID")
     s.add_argument("--save", action="store_true", help="also save it to the course's notices/ folder")
     s.set_defaults(fn=cmd_read)
+
+    s = sp.add_parser("grades", help="a course's whole gradebook, totals included")
+    s.add_argument("course", help="course code or part of its name")
+    s.set_defaults(fn=cmd_grades)
+
+    s = sp.add_parser("portal", help="latest KAIST portal notices, or one notice by id")
+    s.add_argument("id", nargs="?", type=int)
+    s.add_argument("--limit", type=int, default=30)
+    s.set_defaults(fn=cmd_portal)
+
+    s = sp.add_parser("privacy", help="let the MCP tools read other students' Q&A and free-board posts (off by default)")
+    s.add_argument("--student-posts", choices=("on", "off"))
+    s.set_defaults(fn=cmd_privacy)
 
     s = sp.add_parser("dl", help="download attachments")
     s.add_argument("urls", nargs="+")

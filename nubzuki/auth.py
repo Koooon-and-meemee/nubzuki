@@ -9,18 +9,30 @@ import tempfile
 DOMAIN = "klms.kaist.ac.kr"
 CONFIG_DIR = os.path.join(os.path.expanduser("~"), ".config", "nubzuki")
 COOKIE_FILE = os.path.join(CONFIG_DIR, "cookie")
+PORTAL_COOKIE_FILE = os.path.join(CONFIG_DIR, "portal_cookie")
 
 
 class AuthError(RuntimeError):
     pass
 
 
-def save_cookie(value):
+def save_cookie(value, path=None):
+    path = path or COOKIE_FILE
     os.makedirs(CONFIG_DIR, exist_ok=True)
-    fd = os.open(COOKIE_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w", encoding="utf-8") as f:
         f.write(value.strip() + "\n")
-    os.chmod(COOKIE_FILE, 0o600)
+    os.chmod(path, 0o600)
+
+
+def portal_cookie():
+    v = os.environ.get("NUBZUKI_PORTAL_COOKIE", "").strip()
+    if v:
+        return v
+    if os.path.exists(PORTAL_COOKIE_FILE):
+        with open(PORTAL_COOKIE_FILE, encoding="utf-8") as f:
+            return f.read().strip() or None
+    return None
 
 
 def _from_env_or_file():

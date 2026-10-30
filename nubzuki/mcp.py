@@ -10,7 +10,8 @@ import threading
 from . import __version__, auth, board, sso, workspace
 from .client import Client, KlmsError, SessionExpired, klms_url
 from .discover import discover
-from .sweep import course_files, display_names, run, save_file
+from .portal import Portal, PortalExpired
+from .sweep import course_files, display_names, grade_table, run, save_file
 from .text import TextError, file_text
 
 PROTOCOL = "2025-06-18"
@@ -25,6 +26,9 @@ INSTRUCTIONS = (
     "- What's due: sweep, then deadlines (sweep only lists changes).\n"
     "- A course's latest notice or Q&A: posts, then read_post.\n"
     "- Lecture notes or other course files: course_files, download, then file_text.\n"
+    "- Grades or a course total: grades.\n"
+    "- KAIST portal notices (scholarships, jobs, events, 학사 notices): portal_notices, then read_portal. "
+    "sweep also lists new ones. Decide from each notice's eligibility text whether it applies to the user.\n"
     "Course arguments take a code (BS.10020) or part of the name (일반생물). Map nicknames such as 일생 (일반생물학), "
     "미적 (미적분학) or 일물 (일반물리학) with the courses list. Read post bodies and attachments before answering: "
     "dates, rooms and exam scope often live there. Answer in the user's language, deadlines in date order.")
@@ -53,10 +57,26 @@ TOOLS = [
          "board": {"type": "string", "enum": ["notice", "qna", "free"], "description": "default notice"},
          "limit": {"type": "integer", "description": "default 15"}}}},
     {"name": "read_post",
-     "description": "Read a board post's body and attachment URLs. Get board and bwid from sweep or posts.",
+     "description": "Read a board post's body and attachment URLs. Get board and bwid from sweep or posts. "
+                    "Q&A and free-board posts are written by other students, so they are only readable "
+                    "if the user turned that on with `nubzuki privacy --student-posts on`.",
      "inputSchema": {"type": "object", "required": ["board", "bwid"], "properties": {
          "board": {"type": "integer"}, "bwid": {"type": "integer"},
          "save": {"type": "boolean", "description": "also save it to the course's notices/<bwid>.md"}}}},
+    {"name": "grades",
+     "description": "A course's whole gradebook as KLMS shows it now: every item with its score, range, "
+                    "percentage and class average, including totals. One request per section.",
+     "inputSchema": {"type": "object", "required": ["course"], "properties": {"course": COURSE}}},
+    {"name": "portal_notices",
+     "description": "Latest notices on the KAIST portal (portal.kaist.ac.kr) across all boards, newest first: "
+                    "scholarships, part-time jobs, events, 학사 and IT notices. Use read_portal for the body.",
+     "inputSchema": {"type": "object", "properties": {
+         "limit": {"type": "integer", "description": "default 30, at most 100"},
+         "page": {"type": "integer", "description": "1 for the newest (default)"},
+         "board": {"type": "string", "description": "keep only boards whose name contains this, like 장학 or 근로"}}}},
+    {"name": "read_portal",
+     "description": "Read a KAIST portal notice: body text, attachment names and a link. Get id from portal_notices or sweep.",
+     "inputSchema": {"type": "object", "required": ["id"], "properties": {"id": {"type": "integer"}}}},
     {"name": "course_files",
      "description": "Files on a course's KLMS page, newest uploads first, with download URLs. saved shows where a "
                     "file was already downloaded. For lecture notes: course_files, download, then file_text.",
@@ -85,9 +105,9 @@ TOOLS = [
          "root": {"type": "string", "description": "where semester folders live (default: the last one used, or ~/KAIST)"}}}},
     {"name": "login",
      "description": "Send a KAIST easy-login request to the user's phone and return the number to tap in the KAIST app. "
-                    "Call it when another tool reports no live session. On first use, ask the user for their KAIST ID "
+                    "One login covers KLMS and the KAIST portal. Call it when another tool reports no live session. On first use, ask the user for their KAIST ID "
                     "(SSO login ID, not student number) and pass it as id; it is remembered afterwards. If the session "
-                    "is still valid, nothing is sent. Show the user the number prominently, then call login_status.",
+                    "and the portal are still valid, nothing is sent. Show the user the number prominently, then call login_status.",
      "inputSchema": {"type": "object", "properties": {
          "id": {"type": "string", "description": "KAIST ID (defaults to the remembered one)"}}}},
     {"name": "login_status",
@@ -103,6 +123,11 @@ class ToolError(Exception):
 
 class MethodNotFound(Exception):
     pass
+
+
+STUDENT_POSTS = ("Q&A and free-board posts are written by other students, so nubzuki doesn't hand their text to an AI "
+                 "unless the user turns it on. Tell the user they can run `nubzuki privacy --student-posts on` "
+                 "in a terminal if they want that. Titles are still listed by posts and sweep.")
 
 
 def _ctx(url):
@@ -143,6 +168,25 @@ class Server:
             return fn(self.connect())
         except SessionExpired:
             return fn(self.connect(fresh=True))
+
+    def portal(self):
+        return Portal()
+
+    def portal_alive(self):
+        try:
+            self.portal().recents(1)
+        except PortalExpired:
+            return False
+        except KlmsError:
+            pass
+        return True
+
+    def board_kind(self, ws, bid):
+        for c in ws.courses:
+            for kind, b in c.get("boards", {}).items():
+                if b == bid:
+                    return kind
+        return "notice"
 
     def courses_for(self, ws, key):
         """Every section of the course the key names (a code can cover a lecture and a recitation)."""
@@ -226,7 +270,7 @@ class Server:
         for c in courses:
             bid = c.get("boards", {}).get(kind)
             if bid:
-                rows = self.with_client(lambda cl: board.posts(cl, bid))
+                rows = self.with_client(lambda cl: board.posts(cl, bid, hide_authors=kind in board.STUDENT_BOARDS))
                 out.append({"course": c["code"], "section": c["section"], "name": c["name"],
                             "board": bid, "posts": rows[:limit]})
         if not out:
@@ -236,7 +280,13 @@ class Server:
 
     def t_read_post(self, a):
         bid, bwid = int(a["board"]), int(a["bwid"])
+        ws = workspace.find()
+        student = ws is not None and self.board_kind(ws, bid) in board.STUDENT_BOARDS
+        if student and not workspace.load_config().get("student_posts"):
+            raise ToolError(STUDENT_POSTS)
         text, files = self.with_client(lambda cl: board.article(cl, bid, bwid))
+        if student:
+            text = board.mask_authors(text)
         out = {"board": bid, "bwid": bwid, "text": text[:MAX_TEXT], "attachments": files}
         if a.get("save"):
             ws = self.ws()
@@ -247,6 +297,27 @@ class Server:
                 with open(p, "w", encoding="utf-8") as f:
                     f.write(text + ("\n\n" + "\n".join(files) if files else "") + "\n")
                 out["saved"] = os.path.relpath(p, ws.path)
+        return out
+
+    def t_grades(self, a):
+        ws = self.ws()
+        out = []
+        for c in self.courses_for(ws, a["course"]):
+            columns, rows = self.with_client(lambda cl: grade_table(cl, c["id"]))
+            out.append({"course": c["code"], "section": c["section"], "name": c["name"], "columns": columns, "rows": rows})
+        return {"grades": out}
+
+    def t_portal_notices(self, a):
+        limit = max(1, min(int(a.get("limit") or 30), 100))
+        rows = self.portal().recents(limit, int(a.get("page") or 1))
+        if a.get("board"):
+            key = a["board"].replace(" ", "")
+            rows = [r for r in rows if key in r["board"].replace(" ", "")]
+        return {"notices": rows}
+
+    def t_read_portal(self, a):
+        out = self.portal().post(int(a["id"]))
+        out["text"] = out["text"][:MAX_TEXT]
         return out
 
     def t_course_files(self, a):
@@ -306,7 +377,9 @@ class Server:
         if kid == remembered:
             try:
                 self.connect(fresh=True)
-                return {"status": "logged_in", "message": "The KLMS session is still valid, so nothing was sent."}
+                if self.portal_alive():
+                    return {"status": "logged_in",
+                            "message": "The KLMS and portal sessions are still valid, so nothing was sent."}
             except SessionExpired:
                 pass
         job = {"number": None, "error": None, "shown": threading.Event()}
@@ -354,9 +427,10 @@ class Server:
         try:
             with contextlib.redirect_stdout(sys.stderr):
                 return fn(args or {})
-        except SessionExpired:
+        except SessionExpired as e:
             kid = workspace.load_config().get("kaist_id")
-            raise ToolError("No live KLMS session. " + (
+            what = "KAIST portal" if isinstance(e, PortalExpired) else "KLMS"
+            raise ToolError(f"No live {what} session. " + (
                 "Tell the user a login request will go to their phone, then call login." if kid else
                 "First-time login: ask the user for their KAIST ID, then call login with id."))
         except (KlmsError, auth.AuthError, sso.SSOError, OSError) as e:

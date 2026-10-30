@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "nubzuki"
 dynamic = ["version"]
-description = "Sweep KAIST KLMS for new posts, deadlines, files and grades, and set up per-semester course folders"
+description = "Sweep KAIST KLMS and the KAIST portal for new posts, deadlines, files and grades, and set up per-semester course folders"
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "MIT" }
