@@ -14,7 +14,19 @@ permissions:
 concurrency: traffic
 
 jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      ok: ${{ steps.token.outputs.ok }}
+    steps:
+      - id: token
+        env:
+          TOKEN: ${{ secrets.TRAFFIC_TOKEN }}
+        run: |
+          if [ -n "$TOKEN" ]; then echo "ok=true" >> "$GITHUB_OUTPUT"; else echo "::notice::TRAFFIC_TOKEN is not set, skipping"; fi
   archive:
+    needs: check
+    if: needs.check.outputs.ok == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
