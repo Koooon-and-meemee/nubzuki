@@ -36,6 +36,15 @@ The first time, it makes a folder per course under `~/KAIST/2026F/` (`nubzuki in
 
 You need the KAIST login app registered for your account (sso.kaist.ac.kr → 로그인 앱 등록).
 If you don't have pipx: `brew install pipx` on a Mac, `pip install --user pipx` otherwise.
+pipx installs straight from GitHub, so you also need git (`xcode-select --install` on a Mac, [git-scm.com](https://git-scm.com) otherwise).
+
+### Updating
+
+```sh
+pipx reinstall nubzuki
+```
+
+This pulls the latest version from GitHub. Restart the app afterwards so it picks up the new tools.
 
 ### If you use ChatGPT
 
@@ -215,6 +224,16 @@ and it waits and retries on session locks.
 ```sh
 pip install git+https://github.com/Koooon-and-meemee/nubzuki
 pip install "nubzuki[browser] @ git+https://github.com/Koooon-and-meemee/nubzuki"   # browser_cookie3 support
+```
+
+From a clone, if you want to read or change the code. `git pull` is then all it takes to update:
+
+```sh
+gh auth login                  # only needed to push; the repo is public
+git clone https://github.com/Koooon-and-meemee/nubzuki
+cd nubzuki
+pipx install --editable .
+git pull                       # later, to update
 ```
 
 Tested on macOS, Linux and Windows with Python 3.9 and 3.13. If KLMS changes its layout and something breaks, open an issue.
