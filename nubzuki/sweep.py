@@ -68,6 +68,24 @@ def grade_table(client, cid):
     return columns, rows
 
 
+def attendance(client, cid):
+    h = client.get(f"/local/lmsattendance/index.php?id={cid}")
+    m = re.search(r"(?is)<table[^>]*attendance_my[^>]*>(.*?)</table>", h)
+    if not m:
+        return None
+    rows = table_rows(m.group(1))
+    head = rows[0] if rows else []
+    marks = head[2:]
+    sessions, summary = [], {}
+    for cells in rows[1:]:
+        if len(cells) == len(head):
+            hit = [marks[i] for i, v in enumerate(cells[2:]) if v]
+            sessions.append({"week": cells[0], "period": cells[1], "status": hit[0] if hit else ""})
+        else:
+            summary.update({k: int(v) for k, v in re.findall(r"([^\s:,]+)\s*:\s*(\d+)", " ".join(cells))})
+    return {"columns": marks, "sessions": sessions, "summary": summary}
+
+
 def display_names(urls):
     seen = Counter()
     out = []
@@ -222,8 +240,7 @@ def run(client, ws, since=None, download=False, show_all=False, save=True, out=p
             if "portal" in old:
                 new["portal"] = old["portal"]
             fresh = []
-            report["portal_error"] = (f"{e} Portal notices were not checked. "
-                                      "Log in again: one phone login covers KLMS and the portal.")
+            report["portal_error"] = f"{e} Portal notices were not checked."
         if fresh and not first:
             section("portal", "KAIST portal")
             out("\n".join(f"   NEW [{r['date']}] id={r['id']}  [{r['board']}] {r['title']}" for r in fresh))

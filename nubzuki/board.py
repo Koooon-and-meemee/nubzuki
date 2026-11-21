@@ -45,6 +45,6 @@ def article(client, bid, bwid):
             body = body[:j]
     text = totext(body.split(">", 1)[-1], cell_sep="\t")
     files = list(dict.fromkeys(
-        f for f in re.findall(r'pluginfile\.php[^"\'<>\s]*', H.unescape(body))
-        if "forcedownload" not in f))
+        re.sub(r"[?&]forcedownload=1$", "", f)
+        for f in re.findall(r'pluginfile\.php[^"\'<>\s]*', H.unescape(body))))
     return text, files

@@ -15,6 +15,7 @@ If the nubzuki MCP tools are available, use them instead of the CLI:
 - a course's latest notice: `posts`, then `read_post`
 - lecture notes: `course_files`, `download`, then `file_text`
 - grades or totals: `grades`
+- absences, lates or attendance: `attendance`
 - KAIST portal notices (scholarships, jobs, events): `portal_notices`, then `read_portal`. Judge from the eligibility text whether each applies to the user.
 
 To set them up, suggest `! nubzuki mcp install`.
@@ -46,7 +47,7 @@ The semester folder (`~/KAIST/2026F/<COURSE_CODE>/{files,notices}`) is created o
 
 - To use KLMS from their phone, suggest `nubzuki remote` (Claude Code Remote Control in the semester folder).
 - `nubzuki courses` lists course IDs and the Notices / Q&A / free board IDs.
-- `nubzuki grades <course>` prints the whole gradebook; `nubzuki portal [<id>]` lists or reads portal notices.
+- `nubzuki grades <course>` prints the whole gradebook; `nubzuki attendance <course>` prints the attendance tab; `nubzuki portal [<id>]` lists or reads portal notices.
 - Q&A and free-board bodies are blocked in the MCP tools unless the user ran `nubzuki privacy --student-posts on`. Don't turn it on for them.
 - `nubzuki sweep --json` gives machine-readable output.
 - Some courses announce things only verbally in class. "Not on KLMS" does not mean "doesn't exist".

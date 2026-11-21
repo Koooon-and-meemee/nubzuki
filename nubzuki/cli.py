@@ -8,7 +8,7 @@ from . import __version__, auth, board, sso, workspace
 from .client import Client, KlmsError, SessionExpired, filename_of
 from .discover import SEMESTER_NAME, discover
 from .portal import Portal
-from .sweep import grade_table, run
+from .sweep import attendance, grade_table, run
 from .text import TextError, file_text
 
 
@@ -178,6 +178,24 @@ def cmd_grades(a):
             print("  " + " | ".join(r))
 
 
+def cmd_attendance(a):
+    ws = need_ws()
+    hits = ws.match(a.course)
+    if not hits:
+        sys.exit(f"No course matches {a.course!r}. Try `nubzuki courses`.")
+    cl = connect()
+    for c in hits:
+        t = attendance(cl, c["id"])
+        print(f"\n[{c['code']} {c['section']} {c['name']}]")
+        if not t:
+            print("  no attendance tab")
+            continue
+        for r in t["sessions"]:
+            print(f"  {r['week']} {r['period']}: {r['status'] or '-'}")
+        if t["summary"]:
+            print("  " + ", ".join(f"{k} {v}" for k, v in t["summary"].items()))
+
+
 def cmd_portal(a):
     pc = Portal()
     if a.id:
@@ -282,6 +300,10 @@ def main(argv=None):
     s = sp.add_parser("grades", help="a course's whole gradebook, totals included")
     s.add_argument("course", help="course code or part of its name")
     s.set_defaults(fn=cmd_grades)
+
+    s = sp.add_parser("attendance", help="a course's attendance tab: absences, lates and totals")
+    s.add_argument("course", help="course code or part of its name")
+    s.set_defaults(fn=cmd_attendance)
 
     s = sp.add_parser("portal", help="latest KAIST portal notices, or one notice by id")
     s.add_argument("id", nargs="?", type=int)

@@ -62,6 +62,19 @@ class Parsing(unittest.TestCase):
         urls = ["a/x/notes.pdf", "a/y/notes.pdf", "a/z/other.pdf"]
         self.assertEqual(display_names(urls), ["notes.pdf", "notes (2).pdf", "other.pdf"])
 
+    def test_article_attachments(self):
+        from nubzuki import board
+        page = ('<div class="courseboard_view"><ul class="files"><li>'
+                '<a href="https://klms.kaist.ac.kr/pluginfile.php/7/mod_courseboard/attachment/42/a%20b.pdf?forcedownload=1">a b.pdf</a>'
+                '</li></ul><div class="content"><p>Body</p>'
+                '<img src="https://klms.kaist.ac.kr/pluginfile.php/7/mod_courseboard/content/42/c.png"></div></div>')
+        cl = mock.Mock()
+        cl.get.return_value = page
+        text, files = board.article(cl, 1, 42)
+        self.assertIn("Body", text)
+        self.assertEqual(files, ["pluginfile.php/7/mod_courseboard/attachment/42/a%20b.pdf",
+                                 "pluginfile.php/7/mod_courseboard/content/42/c.png"])
+
 
 class Workspace(unittest.TestCase):
     def test_init_creates_folders(self):
@@ -150,7 +163,7 @@ class Mcp(unittest.TestCase):
         self.assertEqual([m["id"] for m in out], [1, 2, 3])
         self.assertEqual(out[0]["result"]["serverInfo"]["name"], "nubzuki")
         names = {t["name"] for t in out[1]["result"]["tools"]}
-        self.assertTrue({"sweep", "read_post", "file_text", "login", "grades", "portal_notices", "read_portal"} <= names)
+        self.assertTrue({"sweep", "read_post", "file_text", "login", "grades", "attendance", "portal_notices", "read_portal"} <= names)
         self.assertEqual(out[2]["error"]["code"], -32601)
 
     def test_paths_stay_in_workspace(self):
@@ -466,6 +479,32 @@ PORTAL_ITEM = {"pstNo": 5, "pstTtl": "근로장학생 모집", "boardNm": "근�
                "delYn": "N", "loginId": "me"}
 
 
+class Attendance(unittest.TestCase):
+    def test_table(self):
+        from nubzuki import sweep
+        html = ("<table class=\"attendance_my table\"><thead><tr><th>출결 날짜</th><th>교시</th><th>출석</th>"
+                "<th>결석</th><th>지각</th><th>기타</th></tr></thead><tbody>"
+                "<tr><td>1주차</td><td>1교시</td><td>&nbsp;</td><td>○</td><td>&nbsp;</td><td>&nbsp;</td></tr>"
+                "<tr><td>1주차</td><td>2교시</td><td>○</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>"
+                "<tr><td>2주차</td><td>1교시</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>○</td></tr>"
+                "<tr><td>2주차</td><td>2교시</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td></tr>"
+                "</tbody><tfoot><tr><td colspan=\"6\"><span><strong>출석</strong> : 1,</span>"
+                "<span><strong>결석</strong> : 1,</span><span><strong>지각</strong> : 0,</span>"
+                "<span><strong>기타</strong> : 1</span></td></tr></tfoot></table>")
+        cl = mock.Mock()
+        cl.get.return_value = html
+        t = sweep.attendance(cl, 1)
+        self.assertEqual([r["status"] for r in t["sessions"]], ["결석", "출석", "기타", ""])
+        self.assertEqual(t["sessions"][0]["week"], "1주차")
+        self.assertEqual(t["summary"], {"출석": 1, "결석": 1, "지각": 0, "기타": 1})
+
+    def test_no_tab(self):
+        from nubzuki import sweep
+        cl = mock.Mock()
+        cl.get.return_value = "<html>no table</html>"
+        self.assertIsNone(sweep.attendance(cl, 1))
+
+
 class Portal(unittest.TestCase):
     def test_summary_and_detail(self):
         from nubzuki import portal
@@ -486,6 +525,20 @@ class Portal(unittest.TestCase):
         with mock.patch.object(portal.auth, "portal_cookie", return_value=None):
             with self.assertRaises(portal.PortalExpired):
                 portal.Portal()
+
+    def test_expired_session_500(self):
+        """The portal answers an expired session with 500 {"status":"fail"}, not 401."""
+        from nubzuki import portal
+        body = '{"message":"처리중 오류가 발생했습니다.","status":"fail"}'.encode()
+        err = urllib.error.HTTPError("https://portal.kaist.ac.kr/x", 500, "", {}, io.BytesIO(body))
+        with mock.patch.object(portal._opener, "open", side_effect=err):
+            with self.assertRaises(portal.PortalExpired):
+                portal.Portal(cookie="JSESSIONID=x").recents()
+        other = urllib.error.HTTPError("https://portal.kaist.ac.kr/x", 500, "", {}, io.BytesIO(b"<html>oops"))
+        with mock.patch.object(portal._opener, "open", side_effect=other):
+            with self.assertRaises(portal.KlmsError) as cm:
+                portal.Portal(cookie="JSESSIONID=x").recents()
+            self.assertNotIsInstance(cm.exception, portal.PortalExpired)
 
     def test_since_stops_at_seen(self):
         from nubzuki import portal

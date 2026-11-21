@@ -133,6 +133,7 @@ nubzuki sweep --json
 nubzuki read <board> <bwid> [<board> <bwid> ...]   # post body + attachment links
 nubzuki read <board> <bwid> --save                 # save to <course>/notices/<bwid>.md
 nubzuki grades 미적                                # the whole gradebook, totals included
+nubzuki attendance 미적                            # attendance tab: absences, lates, totals
 nubzuki portal [--limit 30]                        # latest KAIST portal notices
 nubzuki portal <id>                                # one portal notice with attachment names
 nubzuki privacy --student-posts on|off             # let the MCP tools read Q&A and free-board bodies

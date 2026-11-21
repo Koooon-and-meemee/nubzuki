@@ -11,7 +11,7 @@ from . import __version__, auth, board, sso, workspace
 from .client import Client, KlmsError, SessionExpired, klms_url
 from .discover import discover
 from .portal import Portal, PortalExpired
-from .sweep import course_files, display_names, grade_table, run, save_file
+from .sweep import attendance, course_files, display_names, grade_table, run, save_file
 from .text import TextError, file_text
 
 PROTOCOL = "2025-06-18"
@@ -27,6 +27,7 @@ INSTRUCTIONS = (
     "- A course's latest notice or Q&A: posts, then read_post.\n"
     "- Lecture notes or other course files: course_files, download, then file_text.\n"
     "- Grades or a course total: grades.\n"
+    "- Absences, lates or attendance: attendance.\n"
     "- KAIST portal notices (scholarships, jobs, events, 학사 notices): portal_notices, then read_portal. "
     "sweep also lists new ones. Decide from each notice's eligibility text whether it applies to the user.\n"
     "Course arguments take a code (BS.10020) or part of the name (일반생물). Map nicknames such as 일생 (일반생물학), "
@@ -66,6 +67,10 @@ TOOLS = [
     {"name": "grades",
      "description": "A course's whole gradebook as KLMS shows it now: every item with its score, range, "
                     "percentage and class average, including totals. One request per section.",
+     "inputSchema": {"type": "object", "required": ["course"], "properties": {"course": COURSE}}},
+    {"name": "attendance",
+     "description": "A course's attendance tab as KLMS shows it now: each week and period marked present, absent, "
+                    "late or other (often excused), blank when not recorded yet, plus the totals.",
      "inputSchema": {"type": "object", "required": ["course"], "properties": {"course": COURSE}}},
     {"name": "portal_notices",
      "description": "Latest notices on the KAIST portal (portal.kaist.ac.kr) across all boards, newest first: "
@@ -306,6 +311,14 @@ class Server:
             columns, rows = self.with_client(lambda cl: grade_table(cl, c["id"]))
             out.append({"course": c["code"], "section": c["section"], "name": c["name"], "columns": columns, "rows": rows})
         return {"grades": out}
+
+    def t_attendance(self, a):
+        ws = self.ws()
+        out = []
+        for c in self.courses_for(ws, a["course"]):
+            t = self.with_client(lambda cl: attendance(cl, c["id"]))
+            out.append({"course": c["code"], "section": c["section"], "name": c["name"], **(t or {"sessions": None})})
+        return {"attendance": out}
 
     def t_portal_notices(self, a):
         limit = max(1, min(int(a.get("limit") or 30), 100))

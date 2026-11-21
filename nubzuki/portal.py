@@ -19,6 +19,15 @@ class PortalExpired(SessionExpired):
     pass
 
 
+def _expired_500(code, body):
+    if code != 500:
+        return False
+    try:
+        return (json.loads(body) or {}).get("status") == "fail"
+    except ValueError:
+        return False
+
+
 def link(pst):
     return f"{BASE}/kaist/portal/board/ntc/0#{pst}"
 
@@ -58,8 +67,12 @@ class Portal:
                 body = r.read().decode("utf8", "replace")
                 final = urllib.parse.urlsplit(r.geturl())
         except urllib.error.HTTPError as e:
+            try:
+                err = e.read().decode("utf8", "replace")
+            except OSError:
+                err = ""
             e.close()
-            if e.code in (401, 403):
+            if e.code in (401, 403) or _expired_500(e.code, err):
                 raise PortalExpired(EXPIRED)
             raise KlmsError(f"The portal returned HTTP {e.code} for {path}")
         except (OSError, http.client.HTTPException) as e:
